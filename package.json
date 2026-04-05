@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "db:init": "node scripts/init-neon-db.js",
     "db:migrate:firebase-uid": "node scripts/migrate-firebase-uid.js",
+    "db:migrate:firebase-only-identity": "node scripts/migrate-firebase-only-identity.js",
     "db:verify": "node scripts/verify-neon-tables.js",
     "test": "echo \"No tests yet\""
   },

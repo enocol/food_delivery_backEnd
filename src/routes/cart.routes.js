@@ -21,7 +21,7 @@ async function ensureCartExists(userId) {
     `
     INSERT INTO carts (firebase_uid)
     VALUES ($1)
-    ON CONFLICT (firebase_uid) DO NOTHING
+    ON CONFLICT DO NOTHING
     `,
     [userId],
   );
@@ -62,6 +62,21 @@ async function fetchHydratedCart(userId) {
     subtotal,
   };
 }
+
+// Frontend compatibility: active cart is inferred from authenticated user.
+router.get("/active", async (req, res) => {
+  const cart = await fetchHydratedCart(req.auth.userId);
+  return res.status(200).json(cart);
+});
+
+// Frontend compatibility: POST /api/carts ensures/returns the caller's cart.
+router.post("/", async (req, res) => {
+  const cart = await fetchHydratedCart(req.auth.userId);
+  return res.status(200).json({
+    message: "Cart ready",
+    cart,
+  });
+});
 
 router.get("/:userId", ensureOwnCart, async (req, res) => {
   const cart = await fetchHydratedCart(req.params.userId);
