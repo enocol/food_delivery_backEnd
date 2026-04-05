@@ -7,7 +7,7 @@ const router = express.Router();
 router.get("/:orderId/tracking", requireAuth, async (req, res) => {
   const orderResult = await pool.query(
     `
-    SELECT id, user_id, status
+    SELECT id, firebase_uid, status
     FROM orders
     WHERE id = $1
     `,
@@ -21,7 +21,7 @@ router.get("/:orderId/tracking", requireAuth, async (req, res) => {
     });
   }
 
-  if (order.user_id !== req.auth.userId) {
+  if (order.firebase_uid !== req.auth.userId) {
     return res.status(403).json({
       message: "You can only track your own orders",
     });

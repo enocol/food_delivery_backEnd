@@ -19,9 +19,9 @@ function ensureOwnCart(req, res, next) {
 async function ensureCartExists(userId) {
   await pool.query(
     `
-    INSERT INTO carts (user_id)
+    INSERT INTO carts (firebase_uid)
     VALUES ($1)
-    ON CONFLICT (user_id) DO NOTHING
+    ON CONFLICT (firebase_uid) DO NOTHING
     `,
     [userId],
   );
@@ -35,7 +35,7 @@ async function fetchHydratedCart(userId) {
     SELECT ci.menu_item_id, ci.quantity, mi.name, mi.price
     FROM cart_items ci
     JOIN menu_items mi ON mi.id = ci.menu_item_id
-    WHERE ci.user_id = $1
+    WHERE ci.firebase_uid = $1
     ORDER BY ci.id ASC
     `,
     [userId],
@@ -95,9 +95,9 @@ router.post("/:userId/items", ensureOwnCart, async (req, res) => {
   await ensureCartExists(req.params.userId);
   await pool.query(
     `
-    INSERT INTO cart_items (user_id, menu_item_id, quantity)
+    INSERT INTO cart_items (firebase_uid, menu_item_id, quantity)
     VALUES ($1, $2, $3)
-    ON CONFLICT (user_id, menu_item_id)
+    ON CONFLICT (firebase_uid, menu_item_id)
     DO UPDATE SET quantity = cart_items.quantity + EXCLUDED.quantity
     `,
     [req.params.userId, menuItemId, quantity],
@@ -124,7 +124,7 @@ router.patch("/:userId/items/:menuItemId", ensureOwnCart, async (req, res) => {
     `
     UPDATE cart_items
     SET quantity = $1
-    WHERE user_id = $2 AND menu_item_id = $3
+    WHERE firebase_uid = $2 AND menu_item_id = $3
     `,
     [quantity, req.params.userId, req.params.menuItemId],
   );
@@ -147,7 +147,7 @@ router.delete("/:userId/items/:menuItemId", ensureOwnCart, async (req, res) => {
   const deleteResult = await pool.query(
     `
     DELETE FROM cart_items
-    WHERE user_id = $1 AND menu_item_id = $2
+    WHERE firebase_uid = $1 AND menu_item_id = $2
     `,
     [req.params.userId, req.params.menuItemId],
   );
@@ -168,7 +168,7 @@ router.delete("/:userId/items/:menuItemId", ensureOwnCart, async (req, res) => {
 
 router.delete("/:userId", ensureOwnCart, async (req, res) => {
   await ensureCartExists(req.params.userId);
-  await pool.query("DELETE FROM cart_items WHERE user_id = $1", [
+  await pool.query("DELETE FROM cart_items WHERE firebase_uid = $1", [
     req.params.userId,
   ]);
 

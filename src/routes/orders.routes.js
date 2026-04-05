@@ -11,7 +11,7 @@ async function getOrderWithDetails(orderId) {
     `
     SELECT
       id,
-      user_id,
+      firebase_uid,
       subtotal,
       delivery_fee,
       total,
@@ -52,7 +52,7 @@ async function getOrderWithDetails(orderId) {
 
   return {
     id: order.id,
-    userId: order.user_id,
+    userId: order.firebase_uid,
     items: itemsResult.rows.map((item) => ({
       menuItemId: item.menu_item_id,
       quantity: item.quantity,
@@ -90,9 +90,10 @@ router.post("/", requireAuth, async (req, res) => {
     });
   }
 
-  const userResult = await pool.query("SELECT id FROM users WHERE id = $1", [
-    userId,
-  ]);
+  const userResult = await pool.query(
+    "SELECT firebase_uid FROM users WHERE firebase_uid = $1",
+    [userId],
+  );
   if (userResult.rowCount === 0) {
     return res.status(404).json({
       message: "User not found",
@@ -104,7 +105,7 @@ router.post("/", requireAuth, async (req, res) => {
     SELECT ci.menu_item_id, ci.quantity, mi.name, mi.price
     FROM cart_items ci
     JOIN menu_items mi ON mi.id = ci.menu_item_id
-    WHERE ci.user_id = $1
+    WHERE ci.firebase_uid = $1
     ORDER BY ci.id ASC
     `,
     [userId],
@@ -140,7 +141,7 @@ router.post("/", requireAuth, async (req, res) => {
       `
       INSERT INTO orders (
         id,
-        user_id,
+        firebase_uid,
         subtotal,
         delivery_fee,
         total,
@@ -193,7 +194,9 @@ router.post("/", requireAuth, async (req, res) => {
       [orderId],
     );
 
-    await pool.query("DELETE FROM cart_items WHERE user_id = $1", [userId]);
+    await pool.query("DELETE FROM cart_items WHERE firebase_uid = $1", [
+      userId,
+    ]);
     await pool.query("COMMIT");
   } catch (error) {
     await pool.query("ROLLBACK");
@@ -219,7 +222,7 @@ router.get("/user/:userId", requireAuth, async (req, res) => {
     `
     SELECT
       id,
-      user_id,
+      firebase_uid,
       subtotal,
       delivery_fee,
       total,
@@ -228,7 +231,7 @@ router.get("/user/:userId", requireAuth, async (req, res) => {
       status,
       created_at
     FROM orders
-    WHERE user_id = $1
+    WHERE firebase_uid = $1
     ORDER BY created_at DESC
     `,
     [req.params.userId],
@@ -236,7 +239,7 @@ router.get("/user/:userId", requireAuth, async (req, res) => {
 
   const orders = ordersResult.rows.map((entry) => ({
     id: entry.id,
-    userId: entry.user_id,
+    userId: entry.firebase_uid,
     subtotal: Number(entry.subtotal),
     deliveryFee: Number(entry.delivery_fee),
     total: Number(entry.total),

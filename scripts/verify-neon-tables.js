@@ -3,7 +3,6 @@ const { Client } = require("pg");
 
 const expectedTables = [
   "users",
-  "sessions",
   "restaurants",
   "menu_items",
   "carts",

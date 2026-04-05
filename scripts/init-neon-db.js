@@ -14,20 +14,13 @@ const schemaSql = `
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,
+  firebase_uid TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT,
   phone TEXT,
-  auth_provider TEXT NOT NULL DEFAULT 'local' CHECK (auth_provider IN ('local', 'emailjs')),
+  auth_provider TEXT NOT NULL DEFAULT 'firebase' CHECK (auth_provider IN ('local', 'emailjs', 'firebase')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS sessions (
-  token TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  expires_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS restaurants (
@@ -56,23 +49,23 @@ CREATE TABLE IF NOT EXISTS menu_items (
 );
 
 CREATE TABLE IF NOT EXISTS carts (
-  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  firebase_uid TEXT PRIMARY KEY REFERENCES users(firebase_uid) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS cart_items (
   id BIGSERIAL PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES carts(user_id) ON DELETE CASCADE,
+  firebase_uid TEXT NOT NULL REFERENCES carts(firebase_uid) ON DELETE CASCADE,
   menu_item_id TEXT NOT NULL REFERENCES menu_items(id) ON DELETE RESTRICT,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(user_id, menu_item_id)
+  UNIQUE(firebase_uid, menu_item_id)
 );
 
 CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  firebase_uid TEXT NOT NULL REFERENCES users(firebase_uid) ON DELETE RESTRICT,
   subtotal NUMERIC(10, 2) NOT NULL CHECK (subtotal >= 0),
   delivery_fee NUMERIC(10, 2) NOT NULL CHECK (delivery_fee >= 0),
   total NUMERIC(10, 2) NOT NULL CHECK (total >= 0),
@@ -111,10 +104,9 @@ CREATE TABLE IF NOT EXISTS deliveries (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_menu_items_restaurant_id ON menu_items(restaurant_id);
-CREATE INDEX IF NOT EXISTS idx_cart_items_user_id ON cart_items(user_id);
-CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_cart_items_firebase_uid ON cart_items(firebase_uid);
+CREATE INDEX IF NOT EXISTS idx_orders_firebase_uid ON orders(firebase_uid);
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_status_history_order_id ON order_status_history(order_id);
 CREATE INDEX IF NOT EXISTS idx_deliveries_order_id ON deliveries(order_id);
