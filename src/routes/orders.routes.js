@@ -135,9 +135,12 @@ router.post("/", requireAuth, async (req, res) => {
 
   const orderId = `o_${randomUUID()}`;
 
-  await pool.query("BEGIN");
+  const client = await pool.connect();
+
   try {
-    await pool.query(
+    await client.query("BEGIN");
+
+    await client.query(
       `
       INSERT INTO orders (
         id,
@@ -163,7 +166,7 @@ router.post("/", requireAuth, async (req, res) => {
     );
 
     for (const item of hydrated.items) {
-      await pool.query(
+      await client.query(
         `
         INSERT INTO order_items (
           order_id,
@@ -186,7 +189,7 @@ router.post("/", requireAuth, async (req, res) => {
       );
     }
 
-    await pool.query(
+    await client.query(
       `
       INSERT INTO order_status_history (order_id, status)
       VALUES ($1, 'pending')
@@ -194,13 +197,16 @@ router.post("/", requireAuth, async (req, res) => {
       [orderId],
     );
 
-    await pool.query("DELETE FROM cart_items WHERE firebase_uid = $1", [
+    await client.query("DELETE FROM cart_items WHERE firebase_uid = $1", [
       userId,
     ]);
-    await pool.query("COMMIT");
+
+    await client.query("COMMIT");
   } catch (error) {
-    await pool.query("ROLLBACK");
+    await client.query("ROLLBACK");
     throw error;
+  } finally {
+    client.release();
   }
 
   const order = await getOrderWithDetails(orderId);

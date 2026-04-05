@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS orders (
   delivery_fee NUMERIC(10, 2) NOT NULL CHECK (delivery_fee >= 0),
   total NUMERIC(10, 2) NOT NULL CHECK (total >= 0),
   delivery_address TEXT NOT NULL,
-  payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'mobile_money', 'card')),
+  payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'mtn-momo', 'orange-mobile-money')),
   status TEXT NOT NULL CHECK (status IN ('pending', 'confirmed', 'preparing', 'picked_up', 'on_the_way', 'delivered', 'cancelled')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

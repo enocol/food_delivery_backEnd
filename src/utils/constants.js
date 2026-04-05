@@ -8,7 +8,7 @@ const ORDER_STATUSES = [
   "cancelled",
 ];
 
-const PAYMENT_METHODS = ["cash", "mobile_money", "card"];
+const PAYMENT_METHODS = ["cash", "mtn-momo", "orange-mobile-money"];
 
 module.exports = {
   ORDER_STATUSES,
