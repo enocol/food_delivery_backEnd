@@ -243,17 +243,38 @@ router.get("/user/:userId", requireAuth, async (req, res) => {
     [req.params.userId],
   );
 
-  const orders = ordersResult.rows.map((entry) => ({
-    id: entry.id,
-    userId: entry.firebase_uid,
-    subtotal: Number(entry.subtotal),
-    deliveryFee: Number(entry.delivery_fee),
-    total: Number(entry.total),
-    deliveryAddress: entry.delivery_address,
-    paymentMethod: entry.payment_method,
-    status: entry.status,
-    createdAt: entry.created_at,
-  }));
+  const orders = [];
+  for (const orderRow of ordersResult.rows) {
+    const itemsResult = await pool.query(
+      `
+      SELECT menu_item_id, name_snapshot, unit_price, quantity, subtotal
+      FROM order_items
+      WHERE order_id = $1
+      ORDER BY id ASC
+      `,
+      [orderRow.id],
+    );
+
+    const items = itemsResult.rows.map((item) => ({
+      name: item.name_snapshot,
+      qty: item.quantity,
+      price: Number(item.unit_price),
+    }));
+
+    const itemCount = items.reduce((sum, item) => sum + item.qty, 0);
+
+    orders.push({
+      id: orderRow.id,
+      created_at: orderRow.created_at,
+      total: Number(orderRow.total),
+      status: orderRow.status,
+      totals: {
+        itemCount,
+        cartTotal: Number(orderRow.total),
+      },
+      items,
+    });
+  }
 
   return res.status(200).json({
     count: orders.length,

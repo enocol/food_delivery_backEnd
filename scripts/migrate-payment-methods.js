@@ -30,7 +30,9 @@ async function migratePaymentMethods() {
     `);
 
     await client.query("COMMIT");
-    console.log("Migration completed: payment_method constraint updated to cash, mtn-momo, orange-mobile-money.");
+    console.log(
+      "Migration completed: payment_method constraint updated to cash, mtn-momo, orange-mobile-money.",
+    );
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("Migration failed:", error.message);
