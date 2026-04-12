@@ -23,6 +23,7 @@ app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/restaurants", restaurantRoutes);
 app.use("/api/menu", menuRoutes);
+app.use("/api/menus", menuRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/carts", cartRoutes);
 app.use("/api/orders", orderRoutes);

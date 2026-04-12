@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS restaurants (
   delivery_fee NUMERIC(10, 2) NOT NULL DEFAULT 0,
   delivery_time_minutes INTEGER NOT NULL DEFAULT 30,
   is_open BOOLEAN NOT NULL DEFAULT TRUE,
+  address TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -43,7 +44,7 @@ CREATE TABLE IF NOT EXISTS menu_items (
   restaurant_id TEXT NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   description TEXT,
-  price NUMERIC(10, 2) NOT NULL CHECK (price >= 0),
+  price NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (price >= 0),
   is_available BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

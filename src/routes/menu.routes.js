@@ -1,7 +1,80 @@
 const express = require("express");
+const { randomUUID } = require("crypto");
 const pool = require("../config/db");
 
 const router = express.Router();
+
+function mapMenuItem(row) {
+  return {
+    id: row.id,
+    restaurantId: row.restaurant_id,
+    name: row.name,
+    description: row.description,
+    price: Number(row.price),
+    isAvailable: row.is_available,
+  };
+}
+
+router.post("/", async (req, res) => {
+  const payload = req.body || {};
+  const restaurantId = payload.restaurant_id || payload.restaurantId;
+  const name = payload.name || payload.menuName;
+  const description = payload.description || null;
+  const price = Number(payload.price);
+  const isAvailable = payload.is_available ?? payload.isAvailable ?? true;
+
+  if (!restaurantId || !restaurantId.trim()) {
+    return res.status(400).json({
+      message: "restaurant_id is required",
+    });
+  }
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({
+      message: "name (or menuName) is required",
+    });
+  }
+
+  if (!Number.isFinite(price)) {
+    return res.status(400).json({
+      message: "price must be a valid number",
+    });
+  }
+
+  const restaurantCheck = await pool.query(
+    `SELECT id FROM restaurants WHERE id = $1`,
+    [restaurantId],
+  );
+
+  if (restaurantCheck.rowCount === 0) {
+    return res.status(404).json({
+      message: "Restaurant not found",
+    });
+  }
+
+  const menuItemId = `m_${randomUUID()}`;
+
+  try {
+    const result = await pool.query(
+      `
+      INSERT INTO menu_items (id, restaurant_id, name, description, price, is_available)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id, restaurant_id, name, description, price, is_available
+      `,
+      [menuItemId, restaurantId, name.trim(), description, price, isAvailable],
+    );
+
+    return res.status(201).json({
+      message: "Menu item created",
+      item: mapMenuItem(result.rows[0]),
+    });
+  } catch (error) {
+    console.error("Menu item creation error:", error);
+    return res.status(500).json({
+      message: "Internal server error",
+    });
+  }
+});
 
 router.get("/items/:itemId", async (req, res) => {
   const itemResult = await pool.query(
