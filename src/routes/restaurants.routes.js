@@ -31,12 +31,14 @@ function mapMenuItem(row) {
 
 router.post("/", async (req, res) => {
   const payload = req.body || {};
-  const restaurantPayload = payload.restaurant || payload;
+  const restaurantPayload =
+    payload.restaurant || payload.restaurantPayload || payload;
   const menuItemsPayload = Array.isArray(payload.menuItems)
     ? payload.menuItems
     : [];
 
-  const name = restaurantPayload.name || restaurantPayload.restaurantName;
+  const name =
+    restaurantPayload.restaurant_name || restaurantPayload.restaurantName;
   const imageUrl =
     restaurantPayload.imageUrl || restaurantPayload.image_url || null;
   const cuisine = restaurantPayload.cuisine;

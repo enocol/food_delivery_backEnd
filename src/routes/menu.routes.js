@@ -18,7 +18,7 @@ function mapMenuItem(row) {
 router.post("/", async (req, res) => {
   const payload = req.body || {};
   const restaurantId = payload.restaurant_id || payload.restaurantId;
-  const name = payload.name || payload.menuName;
+  const name = payload.name || payload.menuName || payload.menu_name;
   const description = payload.description || null;
   const price = Number(payload.price);
   const isAvailable = payload.is_available ?? payload.isAvailable ?? true;
