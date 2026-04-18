@@ -203,6 +203,67 @@ router.post("/", async (req, res) => {
   }
 });
 
+router.get("/with-menus", async (req, res) => {
+  const result = await pool.query(
+    `
+    SELECT
+      r.id,
+      r.name,
+      r.image_url,
+      r.cuisine,
+      r.rating,
+      r.delivery_fee,
+      r.delivery_time_minutes,
+      r.is_open,
+      r.address,
+      m.id AS menu_id,
+      m.name AS menu_name,
+      m.description,
+      m.price,
+      m.is_available
+    FROM restaurants r
+    LEFT JOIN menu_items m ON r.id = m.restaurant_id
+    ORDER BY r.name ASC, m.name ASC
+    `,
+  );
+
+  const restaurantsMap = {};
+  result.rows.forEach((row) => {
+    if (!restaurantsMap[row.id]) {
+      restaurantsMap[row.id] = {
+        id: row.id,
+        name: row.name,
+        imageUrl: row.image_url,
+        cuisine: row.cuisine,
+        rating: Number(row.rating),
+        deliveryFee: Number(row.delivery_fee),
+        deliveryTimeMinutes: row.delivery_time_minutes,
+        isOpen: row.is_open,
+        address: row.address || null,
+        menus: [],
+      };
+    }
+
+    if (row.menu_id) {
+      restaurantsMap[row.id].menus.push({
+        id: row.menu_id,
+        restaurantId: row.id,
+        name: row.menu_name,
+        description: row.description,
+        price: Number(row.price),
+        isAvailable: row.is_available,
+      });
+    }
+  });
+
+  const restaurants = Object.values(restaurantsMap);
+
+  return res.status(200).json({
+    count: restaurants.length,
+    restaurants,
+  });
+});
+
 router.get("/", async (req, res) => {
   const { search, cuisine } = req.query;
 

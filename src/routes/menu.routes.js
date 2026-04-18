@@ -76,6 +76,32 @@ router.post("/", async (req, res) => {
   }
 });
 
+router.get("/", async (req, res) => {
+  const restaurantId = req.query.restaurant_id || req.query.restaurantId;
+  const params = [];
+  const where = [];
+
+  if (restaurantId) {
+    params.push(String(restaurantId));
+    where.push(`restaurant_id = $${params.length}`);
+  }
+
+  const result = await pool.query(
+    `
+    SELECT id, restaurant_id, name, description, price, is_available
+    FROM menu_items
+    ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY name ASC
+    `,
+    params,
+  );
+
+  return res.status(200).json({
+    count: result.rowCount,
+    items: result.rows.map(mapMenuItem),
+  });
+});
+
 router.get("/items/:itemId", async (req, res) => {
   const itemResult = await pool.query(
     `
@@ -124,6 +150,109 @@ router.get("/items/:itemId", async (req, res) => {
           isOpen: restaurant.is_open,
         }
       : null,
+  });
+});
+
+router.patch("/items/:itemId", async (req, res) => {
+  const payload = req.body || {};
+  const updates = [];
+  const params = [];
+
+  const hasNameField =
+    Object.prototype.hasOwnProperty.call(payload, "name") ||
+    Object.prototype.hasOwnProperty.call(payload, "menuName") ||
+    Object.prototype.hasOwnProperty.call(payload, "menu_name");
+  const rawName = payload.name ?? payload.menuName ?? payload.menu_name;
+  if (hasNameField) {
+    if (typeof rawName !== "string" || !rawName.trim()) {
+      return res.status(400).json({
+        message: "name must be a non-empty string",
+      });
+    }
+    params.push(rawName.trim());
+    updates.push(`name = $${params.length}`);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "description")) {
+    params.push(payload.description || null);
+    updates.push(`description = $${params.length}`);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "price")) {
+    const parsedPrice = Number(payload.price);
+    if (!Number.isFinite(parsedPrice)) {
+      return res.status(400).json({
+        message: "price must be a valid number",
+      });
+    }
+    params.push(parsedPrice);
+    updates.push(`price = $${params.length}`);
+  }
+
+  const hasAvailabilityField =
+    Object.prototype.hasOwnProperty.call(payload, "is_available") ||
+    Object.prototype.hasOwnProperty.call(payload, "isAvailable");
+  if (hasAvailabilityField) {
+    const isAvailable =
+      payload.is_available ?? payload.isAvailable ?? payload.is_available;
+    if (typeof isAvailable !== "boolean") {
+      return res.status(400).json({
+        message: "is_available must be a boolean",
+      });
+    }
+    params.push(isAvailable);
+    updates.push(`is_available = $${params.length}`);
+  }
+
+  if (updates.length === 0) {
+    return res.status(400).json({
+      message: "At least one updatable field is required",
+    });
+  }
+
+  params.push(req.params.itemId);
+
+  const result = await pool.query(
+    `
+    UPDATE menu_items
+    SET ${updates.join(", ")}
+    WHERE id = $${params.length}
+    RETURNING id, restaurant_id, name, description, price, is_available
+    `,
+    params,
+  );
+
+  if (result.rowCount === 0) {
+    return res.status(404).json({
+      message: "Menu item not found",
+    });
+  }
+
+  return res.status(200).json({
+    message: "Menu item updated",
+    item: mapMenuItem(result.rows[0]),
+  });
+});
+
+router.delete("/items/:itemId", async (req, res) => {
+  const result = await pool.query(
+    `
+    DELETE FROM menu_items
+    WHERE id = $1
+    RETURNING id, restaurant_id, name, description, price, is_available
+    `,
+    [req.params.itemId],
+  );
+
+  if (result.rowCount === 0) {
+    return res.status(404).json({
+      message: "Menu item not found",
+    });
+  }
+
+  return res.status(200).json({
+    message: "Menu item deleted",
+    item: mapMenuItem(result.rows[0]),
   });
 });
 
