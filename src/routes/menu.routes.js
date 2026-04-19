@@ -164,7 +164,7 @@ router.get("/items/:itemId", async (req, res) => {
   });
 });
 
-router.patch("/items/:itemId", async (req, res) => {
+async function patchMenuItem(req, res) {
   const payload = req.body || {};
   const updates = [];
   const params = [];
@@ -251,7 +251,10 @@ router.patch("/items/:itemId", async (req, res) => {
     message: "Menu item updated",
     item: mapMenuItem(result.rows[0]),
   });
-});
+}
+
+router.patch("/items/:itemId", patchMenuItem);
+router.patch("/:itemId", patchMenuItem);
 
 router.delete("/items/:itemId", async (req, res) => {
   const result = await pool.query(

@@ -74,6 +74,84 @@ async function getOrderWithDetails(orderId) {
   };
 }
 
+async function getOrderRestaurantSummary(orderId) {
+  const summaryResult = await pool.query(
+    `
+    SELECT
+      o.id AS order_id,
+      o.subtotal,
+      o.delivery_fee,
+      o.delivery_address,
+      o.payment_method,
+      u.firebase_uid,
+      u.name,
+      u.email,
+      u.phone
+    FROM orders o
+    JOIN users u ON u.firebase_uid = o.firebase_uid
+    WHERE o.id = $1
+    `,
+    [orderId],
+  );
+
+  const row = summaryResult.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    orderId: row.order_id,
+    subtotal: Number(row.subtotal),
+    deliveryFee: Number(row.delivery_fee),
+    deliveryAddress: row.delivery_address,
+    paymentMethod: row.payment_method,
+    user: {
+      id: row.firebase_uid,
+      name: row.name,
+      email: row.email,
+      phone: row.phone,
+    },
+  };
+}
+
+async function getAllOrdersWithUserSummary() {
+  const result = await pool.query(
+    `
+    SELECT
+      o.id AS order_id,
+      o.subtotal,
+      o.delivery_fee,
+      o.delivery_address,
+      o.payment_method,
+      o.status,
+      o.created_at,
+      u.firebase_uid,
+      u.name,
+      u.email,
+      u.phone
+    FROM orders o
+    JOIN users u ON u.firebase_uid = o.firebase_uid
+    ORDER BY o.created_at DESC
+    `,
+  );
+
+  return result.rows.map((row) => ({
+    orderId: row.order_id,
+    subtotal: Number(row.subtotal),
+    deliveryFee: Number(row.delivery_fee),
+    deliveryAddress: row.delivery_address,
+    paymentMethod: row.payment_method,
+    status: row.status,
+    createdAt: row.created_at,
+    user: {
+      id: row.firebase_uid,
+      name: row.name,
+      email: row.email,
+      phone: row.phone,
+    },
+  }));
+}
+
 router.post("/", requireAuth, async (req, res) => {
   const { deliveryAddress, paymentMethod } = req.body;
   const userId = req.auth.userId;
@@ -282,6 +360,15 @@ router.get("/user/:userId", requireAuth, async (req, res) => {
   });
 });
 
+router.get("/all", requireAuth, async (req, res) => {
+  const orders = await getAllOrdersWithUserSummary();
+
+  return res.status(200).json({
+    count: orders.length,
+    orders,
+  });
+});
+
 router.get("/:orderId", requireAuth, async (req, res) => {
   const order = await getOrderWithDetails(req.params.orderId);
 
@@ -298,6 +385,20 @@ router.get("/:orderId", requireAuth, async (req, res) => {
   }
 
   return res.status(200).json({ order });
+});
+
+router.get("/:orderId/restaurant-summary", async (req, res) => {
+  const summary = await getOrderRestaurantSummary(req.params.orderId);
+
+  if (!summary) {
+    return res.status(404).json({
+      message: "Order not found",
+    });
+  }
+
+  return res.status(200).json({
+    order: summary,
+  });
 });
 
 router.patch("/:orderId/status", async (req, res) => {
