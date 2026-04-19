@@ -10,6 +10,7 @@ function mapMenuItem(row) {
     restaurantId: row.restaurant_id,
     name: row.name,
     description: row.description,
+    imageUrl: row.image_url,
     price: Number(row.price),
     isAvailable: row.is_available,
   };
@@ -20,6 +21,7 @@ router.post("/", async (req, res) => {
   const restaurantId = payload.restaurant_id || payload.restaurantId;
   const name = payload.name || payload.menuName || payload.menu_name;
   const description = payload.description || null;
+  const imageUrl = payload.imageUrl || payload.image_url || null;
   const price = Number(payload.price);
   const isAvailable = payload.is_available ?? payload.isAvailable ?? true;
 
@@ -57,11 +59,19 @@ router.post("/", async (req, res) => {
   try {
     const result = await pool.query(
       `
-      INSERT INTO menu_items (id, restaurant_id, name, description, price, is_available)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, restaurant_id, name, description, price, is_available
+      INSERT INTO menu_items (id, restaurant_id, name, description, image_url, price, is_available)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id, restaurant_id, name, description, image_url, price, is_available
       `,
-      [menuItemId, restaurantId, name.trim(), description, price, isAvailable],
+      [
+        menuItemId,
+        restaurantId,
+        name.trim(),
+        description,
+        imageUrl,
+        price,
+        isAvailable,
+      ],
     );
 
     return res.status(201).json({
@@ -88,7 +98,7 @@ router.get("/", async (req, res) => {
 
   const result = await pool.query(
     `
-    SELECT id, restaurant_id, name, description, price, is_available
+    SELECT id, restaurant_id, name, description, image_url, price, is_available
     FROM menu_items
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY name ASC
@@ -105,7 +115,7 @@ router.get("/", async (req, res) => {
 router.get("/items/:itemId", async (req, res) => {
   const itemResult = await pool.query(
     `
-    SELECT id, restaurant_id, name, description, price, is_available
+    SELECT id, restaurant_id, name, description, image_url, price, is_available
     FROM menu_items
     WHERE id = $1
     `,
@@ -135,6 +145,7 @@ router.get("/items/:itemId", async (req, res) => {
       restaurantId: item.restaurant_id,
       name: item.name,
       description: item.description,
+      imageUrl: item.image_url,
       price: Number(item.price),
       isAvailable: item.is_available,
     },
@@ -178,6 +189,14 @@ router.patch("/items/:itemId", async (req, res) => {
     updates.push(`description = $${params.length}`);
   }
 
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "image_url") ||
+    Object.prototype.hasOwnProperty.call(payload, "imageUrl")
+  ) {
+    params.push(payload.image_url ?? payload.imageUrl ?? null);
+    updates.push(`image_url = $${params.length}`);
+  }
+
   if (Object.prototype.hasOwnProperty.call(payload, "price")) {
     const parsedPrice = Number(payload.price);
     if (!Number.isFinite(parsedPrice)) {
@@ -217,7 +236,7 @@ router.patch("/items/:itemId", async (req, res) => {
     UPDATE menu_items
     SET ${updates.join(", ")}
     WHERE id = $${params.length}
-    RETURNING id, restaurant_id, name, description, price, is_available
+    RETURNING id, restaurant_id, name, description, image_url, price, is_available
     `,
     params,
   );
@@ -239,7 +258,7 @@ router.delete("/items/:itemId", async (req, res) => {
     `
     DELETE FROM menu_items
     WHERE id = $1
-    RETURNING id, restaurant_id, name, description, price, is_available
+    RETURNING id, restaurant_id, name, description, image_url, price, is_available
     `,
     [req.params.itemId],
   );

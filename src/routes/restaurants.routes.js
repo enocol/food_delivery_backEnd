@@ -24,6 +24,7 @@ function mapMenuItem(row) {
     restaurantId: row.restaurant_id,
     name: row.name,
     description: row.description,
+    imageUrl: row.image_url,
     price: Number(row.price),
     isAvailable: row.is_available,
   };
@@ -169,17 +170,19 @@ router.post("/", async (req, res) => {
           restaurant_id,
           name,
           description,
+          image_url,
           price,
           is_available
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, restaurant_id, name, description, price, is_available
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, restaurant_id, name, description, image_url, price, is_available
         `,
         [
           menuItemId,
           restaurantId,
           menuItem.name || menuItem.menuName,
           menuItem.description || null,
+          menuItem.imageUrl || menuItem.image_url || null,
           Number(menuItem.price),
           menuItem.isAvailable ?? menuItem.is_available ?? true,
         ],
@@ -219,6 +222,7 @@ router.get("/with-menus", async (req, res) => {
       m.id AS menu_id,
       m.name AS menu_name,
       m.description,
+      m.image_url AS menu_image_url,
       m.price,
       m.is_available
     FROM restaurants r
@@ -250,6 +254,7 @@ router.get("/with-menus", async (req, res) => {
         restaurantId: row.id,
         name: row.menu_name,
         description: row.description,
+        imageUrl: row.menu_image_url,
         price: Number(row.price),
         isAvailable: row.is_available,
       });
@@ -338,7 +343,7 @@ router.get("/:restaurantId/menu", async (req, res) => {
 
   const menuResult = await pool.query(
     `
-    SELECT id, restaurant_id, name, description, price, is_available
+    SELECT id, restaurant_id, name, description, image_url, price, is_available
     FROM menu_items
     WHERE restaurant_id = $1
     ORDER BY name ASC
@@ -350,6 +355,7 @@ router.get("/:restaurantId/menu", async (req, res) => {
     restaurantId: item.restaurant_id,
     name: item.name,
     description: item.description,
+    imageUrl: item.image_url,
     price: Number(item.price),
     isAvailable: item.is_available,
   }));

@@ -44,10 +44,14 @@ CREATE TABLE IF NOT EXISTS menu_items (
   restaurant_id TEXT NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   description TEXT,
+  image_url TEXT,
   price NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (price >= 0),
   is_available BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE menu_items
+ADD COLUMN IF NOT EXISTS image_url TEXT;
 
 CREATE TABLE IF NOT EXISTS carts (
   firebase_uid TEXT PRIMARY KEY REFERENCES users(firebase_uid) ON DELETE CASCADE,

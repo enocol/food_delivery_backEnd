@@ -11,6 +11,8 @@
     "db:migrate:firebase-only-identity": "node scripts/migrate-firebase-only-identity.js",
     "db:migrate:payment-methods": "node scripts/migrate-payment-methods.js",
     "db:migrate:restaurant-address": "node scripts/migrate-restaurant-address.js",
+    "db:migrate:menu-item-image-url": "node scripts/migrate-menu-item-image-url.js",
+    "db:verify:menu-item-columns": "node scripts/verify-menu-item-columns.js",
     "db:verify": "node scripts/verify-neon-tables.js",
     "test": "echo \"No tests yet\""
   },
