@@ -17,7 +17,10 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
-app.use(morgan("dev"));
+if (app.get("env") === "development") {
+  app.use(morgan("dev"));
+  console.log("Morgan enabled for development environment");
+}
 
 app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);

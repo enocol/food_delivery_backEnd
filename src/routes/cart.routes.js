@@ -32,7 +32,7 @@ async function fetchHydratedCart(userId) {
 
   const result = await pool.query(
     `
-    SELECT ci.menu_item_id, ci.quantity, mi.name, mi.price
+    SELECT ci.menu_item_id, ci.quantity, mi.name, mi.price, mi.restaurant_id
     FROM cart_items ci
     JOIN menu_items mi ON mi.id = ci.menu_item_id
     WHERE ci.firebase_uid = $1
@@ -45,6 +45,7 @@ async function fetchHydratedCart(userId) {
     const unitPrice = Number(row.price);
     return {
       menuItemId: row.menu_item_id,
+      restaurant_id: row.restaurant_id,
       quantity: row.quantity,
       name: row.name,
       unitPrice,

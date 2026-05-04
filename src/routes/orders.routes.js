@@ -180,7 +180,7 @@ router.post("/", requireAuth, async (req, res) => {
 
   const cartItemsResult = await pool.query(
     `
-    SELECT ci.menu_item_id, ci.quantity, mi.name, mi.price
+    SELECT ci.menu_item_id, ci.quantity, mi.name, mi.price, mi.restaurant_id
     FROM cart_items ci
     JOIN menu_items mi ON mi.id = ci.menu_item_id
     WHERE ci.firebase_uid = $1
@@ -192,6 +192,7 @@ router.post("/", requireAuth, async (req, res) => {
   const hydrated = {
     items: cartItemsResult.rows.map((item) => ({
       menuItemId: item.menu_item_id,
+      restaurantId: item.restaurant_id,
       quantity: item.quantity,
       name: item.name,
       unitPrice: Number(item.price),
@@ -248,16 +249,18 @@ router.post("/", requireAuth, async (req, res) => {
         `
         INSERT INTO order_items (
           order_id,
+          restaurant_id,
           menu_item_id,
           name_snapshot,
           unit_price,
           quantity,
           subtotal
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         `,
         [
           orderId,
+          item.restaurantId,
           item.menuItemId,
           item.name,
           item.unitPrice,
