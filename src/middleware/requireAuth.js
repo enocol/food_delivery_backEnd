@@ -100,9 +100,7 @@ async function requireAuth(req, res, next) {
 
   try {
     decodedToken = await getFirebaseAuth().verifyIdToken(idToken);
-    console.log("Decoded Firebase token:", decodedToken); // Debug log for decoded token
   } catch (error) {
-    console.log("Error verifying Firebase ID token:", error); // Debug log for token verification error
     return res.status(401).json({
       message: "Invalid Firebase ID token",
     });
