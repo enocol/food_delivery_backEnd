@@ -28,6 +28,12 @@ If your existing Neon schema still uses `users.id` as the canonical user key, ru
 npm run db:migrate:firebase-uid
 ```
 
+To add the user-to-restaurant likes relationship table, run:
+
+```bash
+npm run db:migrate:likes
+```
+
 4. Health check
 
 ```bash

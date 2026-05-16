@@ -11,6 +11,7 @@ const expectedTables = [
   "order_items",
   "order_status_history",
   "deliveries",
+  "likes",
 ];
 
 async function verifyTables() {

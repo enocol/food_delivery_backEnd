@@ -9,6 +9,7 @@ const menuRoutes = require("./routes/menu.routes");
 const cartRoutes = require("./routes/cart.routes");
 const orderRoutes = require("./routes/orders.routes");
 const deliveryRoutes = require("./routes/delivery.routes");
+const likesRoutes = require("./routes/likes.routes");
 
 const notFound = require("./middleware/notFound");
 const errorHandler = require("./middleware/errorHandler");
@@ -31,6 +32,7 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/carts", cartRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/delivery", deliveryRoutes);
+app.use("/api/likes", likesRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
