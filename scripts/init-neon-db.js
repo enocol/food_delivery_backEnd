@@ -63,10 +63,14 @@ CREATE TABLE IF NOT EXISTS cart_items (
   id BIGSERIAL PRIMARY KEY,
   firebase_uid TEXT NOT NULL REFERENCES carts(firebase_uid) ON DELETE CASCADE,
   menu_item_id TEXT NOT NULL REFERENCES menu_items(id) ON DELETE RESTRICT,
+  image_url TEXT,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(firebase_uid, menu_item_id)
 );
+
+ALTER TABLE cart_items
+ADD COLUMN IF NOT EXISTS image_url TEXT;
 
 CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,
