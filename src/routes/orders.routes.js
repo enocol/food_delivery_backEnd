@@ -328,10 +328,11 @@ router.get("/user/:userId", requireAuth, async (req, res) => {
   for (const orderRow of ordersResult.rows) {
     const itemsResult = await pool.query(
       `
-      SELECT menu_item_id, name_snapshot, unit_price, quantity, subtotal
-      FROM order_items
-      WHERE order_id = $1
-      ORDER BY id ASC
+      SELECT oi.menu_item_id, oi.name_snapshot, oi.unit_price, oi.quantity, oi.subtotal, r.name AS restaurant_name
+      FROM order_items oi
+      LEFT JOIN restaurants r ON oi.restaurant_id = r.id
+      WHERE oi.order_id = $1
+      ORDER BY oi.id ASC
       `,
       [orderRow.id],
     );
@@ -340,6 +341,7 @@ router.get("/user/:userId", requireAuth, async (req, res) => {
       name: item.name_snapshot,
       qty: item.quantity,
       price: Number(item.unit_price),
+      restaurantName: item.restaurant_name,
     }));
 
     const itemCount = items.reduce((sum, item) => sum + item.qty, 0);
