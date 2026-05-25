@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
 
+const homeRoutes = require("./routes/home.routes");
 const healthRoutes = require("./routes/health.routes");
 const authRoutes = require("./routes/auth.routes");
 const restaurantRoutes = require("./routes/restaurants.routes");
@@ -23,6 +24,7 @@ if (app.get("env") === "development") {
   console.log("Morgan enabled for development environment");
 }
 
+app.use("/", homeRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/restaurants", restaurantRoutes);
