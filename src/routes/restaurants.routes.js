@@ -1,6 +1,7 @@
 const express = require("express");
 const { randomUUID } = require("crypto");
 const pool = require("../config/db");
+const requireRestaurantAuth = require("../middleware/requireRestaurantAuth");
 
 const router = express.Router();
 
@@ -366,5 +367,43 @@ router.get("/:restaurantId/menu", async (req, res) => {
     menu,
   });
 });
+
+// PATCH /api/restaurants/:restaurantId/status
+// Authenticated restaurant toggles their own open/closed status
+router.patch(
+  "/:restaurantId/status",
+  requireRestaurantAuth,
+  async (req, res) => {
+    const { restaurantId } = req.params;
+
+    if (req.restaurantAuth.restaurantId !== restaurantId) {
+      return res
+        .status(403)
+        .json({ message: "You can only update your own restaurant's status" });
+    }
+
+    const { is_open } = req.body;
+
+    if (typeof is_open !== "boolean") {
+      return res.status(400).json({ message: "is_open must be a boolean" });
+    }
+
+    const result = await pool.query(
+      `UPDATE restaurants SET is_open = $1 WHERE id = $2
+     RETURNING id, name, is_open`,
+      [is_open, restaurantId],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+
+    return res.status(200).json({
+      restaurantId: result.rows[0].id,
+      restaurantName: result.rows[0].name,
+      isOpen: result.rows[0].is_open,
+    });
+  },
+);
 
 module.exports = router;

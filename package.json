@@ -14,6 +14,8 @@
     "db:migrate:menu-item-image-url": "node scripts/migrate-menu-item-image-url.js",
     "db:migrate:cart-items-image-url": "node scripts/migrate-cart-items-image-url.js",
     "db:migrate:likes": "node scripts/migrate-likes-table.js",
+    "db:migrate:restaurant-users": "node scripts/migrate-restaurant-users.js",
+    "db:seed:restaurant-user": "node scripts/seed-restaurant-user.js",
     "db:verify:menu-item-columns": "node scripts/verify-menu-item-columns.js",
     "db:verify": "node scripts/verify-neon-tables.js",
     "test": "echo \"No tests yet\""
@@ -23,12 +25,15 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.0",
     "express": "^5.2.1",
     "firebase-admin": "^13.5.0",
+    "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.1",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

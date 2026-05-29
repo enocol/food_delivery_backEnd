@@ -292,6 +292,30 @@ router.post("/", requireAuth, async (req, res) => {
 
   const order = await getOrderWithDetails(orderId);
 
+  // Notify each restaurant involved in this order via Socket.io
+  const io = req.app.get("io");
+  if (io) {
+    const restaurantIds = [
+      ...new Set(hydrated.items.map((item) => item.restaurantId)),
+    ];
+    const notificationPayload = {
+      orderId,
+      items: hydrated.items,
+      subtotal: hydrated.subtotal,
+      deliveryFee,
+      total,
+      deliveryAddress,
+      paymentMethod,
+      createdAt: new Date().toISOString(),
+    };
+    for (const restaurantId of restaurantIds) {
+      io.to(`restaurant:${restaurantId}`).emit(
+        "new_order",
+        notificationPayload,
+      );
+    }
+  }
+
   return res.status(201).json({
     message: "Order created",
     order,

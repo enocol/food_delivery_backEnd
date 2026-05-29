@@ -6,6 +6,7 @@ const homeRoutes = require("./routes/home.routes");
 const healthRoutes = require("./routes/health.routes");
 const authRoutes = require("./routes/auth.routes");
 const restaurantRoutes = require("./routes/restaurants.routes");
+const restaurantAuthRoutes = require("./routes/restaurantAuth.routes");
 const menuRoutes = require("./routes/menu.routes");
 const cartRoutes = require("./routes/cart.routes");
 const orderRoutes = require("./routes/orders.routes");
@@ -27,6 +28,7 @@ if (app.get("env") === "development") {
 app.use("/", homeRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/restaurants/auth", restaurantAuthRoutes);
 app.use("/api/restaurants", restaurantRoutes);
 app.use("/api/menu", menuRoutes);
 app.use("/api/menus", menuRoutes);
