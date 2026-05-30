@@ -169,7 +169,7 @@ router.post("/", requireAuth, async (req, res) => {
   }
 
   const userResult = await pool.query(
-    "SELECT firebase_uid FROM users WHERE firebase_uid = $1",
+    "SELECT firebase_uid, phone FROM users WHERE firebase_uid = $1",
     [userId],
   );
   if (userResult.rowCount === 0) {
@@ -306,6 +306,7 @@ router.post("/", requireAuth, async (req, res) => {
       total,
       deliveryAddress,
       paymentMethod,
+      customerPhone: userResult.rows[0].phone ?? null,
       createdAt: new Date().toISOString(),
     };
     for (const restaurantId of restaurantIds) {
