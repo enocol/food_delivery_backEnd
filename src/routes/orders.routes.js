@@ -3,6 +3,7 @@ const { randomUUID } = require("crypto");
 const pool = require("../config/db");
 const { ORDER_STATUSES, PAYMENT_METHODS } = require("../utils/constants");
 const requireAuth = require("../middleware/requireAuth");
+const requireRestaurantAuth = require("../middleware/requireRestaurantAuth");
 
 const router = express.Router();
 
@@ -298,22 +299,31 @@ router.post("/", requireAuth, async (req, res) => {
     const restaurantIds = [
       ...new Set(hydrated.items.map((item) => item.restaurantId)),
     ];
-    const notificationPayload = {
-      orderId,
-      items: hydrated.items,
-      subtotal: hydrated.subtotal,
-      deliveryFee,
-      total,
-      deliveryAddress,
-      paymentMethod,
-      customerPhone: userResult.rows[0].phone ?? null,
-      createdAt: new Date().toISOString(),
-    };
+    const createdAt = new Date().toISOString();
+    const customerPhone = userResult.rows[0].phone ?? null;
     for (const restaurantId of restaurantIds) {
-      io.to(`restaurant:${restaurantId}`).emit(
-        "new_order",
-        notificationPayload,
+      const restaurantItems = hydrated.items.filter(
+        (item) => item.restaurantId === restaurantId,
       );
+      const restaurantSubtotal = Number(
+        restaurantItems
+          .reduce((acc, item) => acc + item.subtotal, 0)
+          .toFixed(2),
+      );
+      const restaurantTotal = Number(
+        (restaurantSubtotal + deliveryFee).toFixed(2),
+      );
+      io.to(`restaurant:${restaurantId}`).emit("new_order", {
+        orderId,
+        items: restaurantItems,
+        subtotal: restaurantSubtotal,
+        deliveryFee,
+        total: restaurantTotal,
+        deliveryAddress,
+        paymentMethod,
+        customerPhone,
+        createdAt,
+      });
     }
   }
 
@@ -399,6 +409,93 @@ router.get("/all", requireAuth, async (req, res) => {
   });
 });
 
+router.get(
+  "/restaurant/:restaurantId",
+  requireRestaurantAuth,
+  async (req, res) => {
+    const { restaurantId } = req.params;
+
+    if (req.restaurantAuth.restaurantId !== restaurantId) {
+      return res.status(403).json({
+        message: "You can only access orders for your own restaurant",
+      });
+    }
+
+    const result = await pool.query(
+      `
+    SELECT
+      o.id AS order_id,
+      o.status,
+      o.subtotal,
+      o.delivery_fee,
+      o.total,
+      o.delivery_address,
+      o.payment_method,
+      o.created_at,
+      u.firebase_uid,
+      u.name,
+      u.email,
+      u.phone
+    FROM order_items oi
+    JOIN orders o ON o.id = oi.order_id
+    JOIN users u ON u.firebase_uid = o.firebase_uid
+    WHERE oi.restaurant_id = $1
+    GROUP BY o.id, u.firebase_uid, u.name, u.email, u.phone
+    ORDER BY o.created_at DESC
+    `,
+      [restaurantId],
+    );
+
+    const orderIds = result.rows.map((r) => r.order_id);
+
+    let itemsByOrder = {};
+    if (orderIds.length > 0) {
+      const itemsResult = await pool.query(
+        `
+      SELECT order_id, menu_item_id, name_snapshot, unit_price, quantity, subtotal
+      FROM order_items
+      WHERE order_id = ANY($1) AND restaurant_id = $2
+      ORDER BY id ASC
+      `,
+        [orderIds, restaurantId],
+      );
+      for (const item of itemsResult.rows) {
+        if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = [];
+        itemsByOrder[item.order_id].push({
+          menuItemId: item.menu_item_id,
+          name: item.name_snapshot,
+          unitPrice: Number(item.unit_price),
+          quantity: item.quantity,
+          subtotal: Number(item.subtotal),
+        });
+      }
+    }
+
+    const orders = result.rows.map((row) => ({
+      orderId: row.order_id,
+      status: row.status,
+      subtotal: Number(row.subtotal),
+      deliveryFee: Number(row.delivery_fee),
+      total: Number(row.total),
+      deliveryAddress: row.delivery_address,
+      paymentMethod: row.payment_method,
+      createdAt: row.created_at,
+      customer: {
+        id: row.firebase_uid,
+        name: row.name,
+        email: row.email,
+        phone: row.phone,
+      },
+      items: itemsByOrder[row.order_id] || [],
+    }));
+
+    return res.status(200).json({
+      count: orders.length,
+      orders,
+    });
+  },
+);
+
 router.get("/:orderId", requireAuth, async (req, res) => {
   const order = await getOrderWithDetails(req.params.orderId);
 
@@ -431,7 +528,7 @@ router.get("/:orderId/restaurant-summary", async (req, res) => {
   });
 });
 
-router.patch("/:orderId/status", async (req, res) => {
+router.patch("/:orderId/status", requireRestaurantAuth, async (req, res) => {
   const { status } = req.body;
 
   if (!status || !ORDER_STATUSES.includes(status)) {
@@ -445,7 +542,7 @@ router.patch("/:orderId/status", async (req, res) => {
     UPDATE orders
     SET status = $1
     WHERE id = $2
-    RETURNING id
+    RETURNING id, firebase_uid
     `,
     [status, req.params.orderId],
   );
@@ -465,6 +562,17 @@ router.patch("/:orderId/status", async (req, res) => {
   );
 
   const order = await getOrderWithDetails(req.params.orderId);
+
+  // Notify the customer in real time
+  const io = req.app.get("io");
+  if (io) {
+    const customerUid = updateResult.rows[0].firebase_uid;
+    io.to(`customer:${customerUid}`).emit("order_status_updated", {
+      orderId: req.params.orderId,
+      status,
+      updatedAt: new Date().toISOString(),
+    });
+  }
 
   return res.status(200).json({
     message: "Order status updated",
