@@ -80,7 +80,8 @@ CREATE TABLE IF NOT EXISTS orders (
   total NUMERIC(10, 2) NOT NULL CHECK (total >= 0),
   delivery_address TEXT NOT NULL,
   payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'mtn-momo', 'orange-mobile-money')),
-  status TEXT NOT NULL CHECK (status IN ('pending', 'confirmed', 'preparing', 'picked_up', 'on_the_way', 'delivered', 'cancelled')),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'confirmed', 'preparing', 'picked_up', 'ready_for_pickup', 'on_the_way', 'delivered', 'cancelled')),
+  payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'failed', 'refunded')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -97,7 +98,7 @@ CREATE TABLE IF NOT EXISTS order_items (
 CREATE TABLE IF NOT EXISTS order_status_history (
   id BIGSERIAL PRIMARY KEY,
   order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  status TEXT NOT NULL CHECK (status IN ('pending', 'confirmed', 'preparing', 'picked_up', 'on_the_way', 'delivered', 'cancelled')),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'confirmed', 'preparing', 'picked_up', 'ready_for_pickup', 'on_the_way', 'delivered', 'cancelled')),
   timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

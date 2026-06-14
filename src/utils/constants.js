@@ -3,6 +3,7 @@ const ORDER_STATUSES = [
   "confirmed",
   "preparing",
   "picked_up",
+  "ready_for_pickup",
   "on_the_way",
   "delivered",
   "cancelled",

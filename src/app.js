@@ -12,6 +12,7 @@ const cartRoutes = require("./routes/cart.routes");
 const orderRoutes = require("./routes/orders.routes");
 const deliveryRoutes = require("./routes/delivery.routes");
 const likesRoutes = require("./routes/likes.routes");
+const driverRoutes = require("./routes/driver.routes");
 
 const notFound = require("./middleware/notFound");
 const errorHandler = require("./middleware/errorHandler");
@@ -37,6 +38,7 @@ app.use("/api/carts", cartRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/delivery", deliveryRoutes);
 app.use("/api/likes", likesRoutes);
+app.use("/api/drivers", driverRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

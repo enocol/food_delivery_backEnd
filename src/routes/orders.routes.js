@@ -19,6 +19,7 @@ async function getOrderWithDetails(orderId) {
       delivery_address,
       payment_method,
       status,
+      payment_status,
       created_at
     FROM orders
     WHERE id = $1
@@ -67,6 +68,7 @@ async function getOrderWithDetails(orderId) {
     deliveryAddress: order.delivery_address,
     paymentMethod: order.payment_method,
     status: order.status,
+    paymentStatus: order.payment_status,
     createdAt: order.created_at,
     statusHistory: statusResult.rows.map((entry) => ({
       status: entry.status,
@@ -125,6 +127,7 @@ async function getAllOrdersWithUserSummary() {
       o.delivery_address,
       o.payment_method,
       o.status,
+      o.payment_status,
       o.created_at,
       u.firebase_uid,
       u.name,
@@ -143,6 +146,7 @@ async function getAllOrdersWithUserSummary() {
     deliveryAddress: row.delivery_address,
     paymentMethod: row.payment_method,
     status: row.status,
+    paymentStatus: row.payment_status,
     createdAt: row.created_at,
     user: {
       id: row.firebase_uid,
@@ -351,6 +355,7 @@ router.get("/user/:userId", requireAuth, async (req, res) => {
       delivery_address,
       payment_method,
       status,
+      payment_status,
       created_at
     FROM orders
     WHERE firebase_uid = $1
@@ -386,6 +391,7 @@ router.get("/user/:userId", requireAuth, async (req, res) => {
       created_at: orderRow.created_at,
       total: Number(orderRow.total),
       status: orderRow.status,
+      paymentStatus: orderRow.payment_status,
       totals: {
         itemCount,
         cartTotal: Number(orderRow.total),
@@ -426,6 +432,7 @@ router.get(
     SELECT
       o.id AS order_id,
       o.status,
+      o.payment_status,
       o.subtotal,
       o.delivery_fee,
       o.total,
@@ -474,6 +481,7 @@ router.get(
     const orders = result.rows.map((row) => ({
       orderId: row.order_id,
       status: row.status,
+      paymentStatus: row.payment_status,
       subtotal: Number(row.subtotal),
       deliveryFee: Number(row.delivery_fee),
       total: Number(row.total),
@@ -512,6 +520,37 @@ router.get("/:orderId", requireAuth, async (req, res) => {
   }
 
   return res.status(200).json({ order });
+});
+
+router.delete("/:orderId", requireRestaurantAuth, async (req, res) => {
+  const { orderId } = req.params;
+
+  const orderResult = await pool.query(
+    `
+    SELECT o.status
+    FROM orders o
+    JOIN order_items oi ON oi.order_id = o.id
+    WHERE o.id = $1 AND oi.restaurant_id = $2
+    LIMIT 1
+    `,
+    [orderId, req.restaurantAuth.restaurantId],
+  );
+
+  if (orderResult.rowCount === 0) {
+    return res.status(404).json({ message: "Order not found" });
+  }
+
+  const { status } = orderResult.rows[0];
+
+  if (!["pending", "cancelled"].includes(status)) {
+    return res.status(409).json({
+      message: "Only pending or cancelled orders can be deleted",
+    });
+  }
+
+  await pool.query("DELETE FROM orders WHERE id = $1", [orderId]);
+
+  return res.status(200).json({ message: "Order deleted" });
 });
 
 router.get("/:orderId/restaurant-summary", async (req, res) => {
@@ -572,6 +611,38 @@ router.patch("/:orderId/status", requireRestaurantAuth, async (req, res) => {
       status,
       updatedAt: new Date().toISOString(),
     });
+
+    // When order is ready for pickup, notify all available drivers
+    if (status === "ready_for_pickup") {
+      const deliveryInfoResult = await pool.query(
+        `
+        SELECT
+          o.id          AS order_id,
+          o.delivery_address,
+          o.delivery_fee,
+          r.name        AS restaurant_name,
+          r.address     AS pickup_address
+        FROM orders o
+        JOIN order_items oi ON oi.order_id = o.id
+        JOIN menu_items mi  ON mi.id = oi.menu_item_id
+        JOIN restaurants r  ON r.id = mi.restaurant_id
+        WHERE o.id = $1
+        LIMIT 1
+        `,
+        [req.params.orderId],
+      );
+
+      if (deliveryInfoResult.rowCount > 0) {
+        const d = deliveryInfoResult.rows[0];
+        io.to("available_drivers").emit("new_delivery_available", {
+          orderId: d.order_id,
+          restaurantName: d.restaurant_name,
+          pickupAddress: d.pickup_address,
+          deliveryAddress: d.delivery_address,
+          fee: Number(d.delivery_fee),
+        });
+      }
+    }
   }
 
   return res.status(200).json({
