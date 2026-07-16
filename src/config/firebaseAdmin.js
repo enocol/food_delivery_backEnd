@@ -69,6 +69,17 @@ function getFirebaseAuth() {
   return admin.auth();
 }
 
+function getFirebaseMessaging() {
+  if (!admin.apps.length) {
+    admin.initializeApp({
+      credential: getCredential(),
+    });
+  }
+
+  return admin.messaging();
+}
+
 module.exports = {
   getFirebaseAuth,
+  getFirebaseMessaging,
 };

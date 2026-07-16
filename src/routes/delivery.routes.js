@@ -1,6 +1,7 @@
 const express = require("express");
 const pool = require("../config/db");
 const requireAuth = require("../middleware/requireAuth");
+const { toRfc3339Utc } = require("../utils/time");
 
 const router = express.Router();
 
@@ -53,7 +54,10 @@ router.get("/:orderId/tracking", requireAuth, async (req, res) => {
     orderId: order.id,
     status: order.status,
     etaMinutes,
-    history: historyResult.rows,
+    history: historyResult.rows.map((entry) => ({
+      status: entry.status,
+      timestamp: toRfc3339Utc(entry.timestamp),
+    })),
   });
 });
 

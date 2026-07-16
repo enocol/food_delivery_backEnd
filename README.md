@@ -34,6 +34,12 @@ To add the user-to-restaurant likes relationship table, run:
 npm run db:migrate:likes
 ```
 
+To enforce driver-to-delivery assignment for driver status updates, run:
+
+```bash
+npm run db:migrate:deliveries-driver-assignment
+```
+
 4. Health check
 
 ```bash
@@ -59,6 +65,10 @@ GET http://localhost:5000/api/health
 - `GET /api/orders/:orderId` (Bearer Firebase ID token required)
 - `PATCH /api/orders/:orderId/status`
 - `GET /api/delivery/:orderId/tracking` (Bearer Firebase ID token required)
+- `POST /api/drivers/session` (Bearer Firebase ID token required)
+- `POST /api/drivers/deliveries/:orderId/accept` (Bearer Firebase ID token required)
+- `PATCH /api/drivers/deliveries/:orderId/status` (Bearer Firebase ID token required, assigned driver only)
+- `POST /api/push-tokens` (Bearer Firebase ID token required)
 
 ## Notes
 

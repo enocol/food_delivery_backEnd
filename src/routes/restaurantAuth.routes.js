@@ -52,7 +52,7 @@ router.post("/login", async (req, res) => {
 
   const token = jwt.sign(
     {
-      restaurant_user_id: restaurantUser.id,
+      restaurant_user_id: String(restaurantUser.id),
       restaurant_id: restaurantUser.restaurant_id,
       role: restaurantUser.role,
     },

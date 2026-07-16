@@ -1,5 +1,6 @@
 const express = require("express");
 const pool = require("../config/db");
+const { toRfc3339Utc } = require("../utils/time");
 
 const router = express.Router();
 
@@ -40,7 +41,7 @@ router.post("/", async (req, res) => {
       like: {
         firebaseUid: like.firebase_uid,
         restaurantId: like.restaurant_id,
-        createdAt: like.created_at,
+        createdAt: toRfc3339Utc(like.created_at),
       },
     });
   } catch (error) {
@@ -52,6 +53,46 @@ router.post("/", async (req, res) => {
 
     throw error;
   }
+});
+
+router.get("/restaurant/:restaurant_id/count", async (req, res) => {
+  const { restaurant_id: restaurantId } = req.params;
+
+  if (!restaurantId) {
+    return res.status(400).json({
+      message: "restaurant_id is required",
+    });
+  }
+
+  const restaurantResult = await pool.query(
+    `
+    SELECT id
+    FROM restaurants
+    WHERE id = $1
+    LIMIT 1
+    `,
+    [restaurantId],
+  );
+
+  if (restaurantResult.rowCount === 0) {
+    return res.status(404).json({
+      message: "Restaurant not found",
+    });
+  }
+
+  const countResult = await pool.query(
+    `
+    SELECT COUNT(*)::int AS likes_count
+    FROM likes
+    WHERE restaurant_id = $1
+    `,
+    [restaurantId],
+  );
+
+  return res.status(200).json({
+    restaurantId,
+    likesCount: countResult.rows[0].likes_count,
+  });
 });
 
 router.get("/:firebase_uid", async (req, res) => {
@@ -85,7 +126,7 @@ router.get("/:firebase_uid", async (req, res) => {
         cuisine: row.cuisine,
         rating: Number(row.rating),
       },
-      likedAt: row.created_at,
+      likedAt: toRfc3339Utc(row.created_at),
     }));
 
     return res.status(200).json({

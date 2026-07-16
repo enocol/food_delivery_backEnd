@@ -1,6 +1,7 @@
 const express = require("express");
 const pool = require("../config/db");
 const requireAuth = require("../middleware/requireAuth");
+const { toCurrencyInt } = require("../utils/currency");
 
 const router = express.Router();
 
@@ -42,7 +43,7 @@ async function fetchHydratedCart(userId) {
   );
 
   const items = result.rows.map((row) => {
-    const unitPrice = Number(row.price);
+    const unitPrice = toCurrencyInt(row.price) ?? 0;
     return {
       menuItemId: row.menu_item_id,
       restaurantId: row.restaurant_id,
@@ -50,13 +51,11 @@ async function fetchHydratedCart(userId) {
       name: row.name,
       unitPrice,
       imageUrl: row.image_url,
-      subtotal: Number((unitPrice * row.quantity).toFixed(2)),
+      subtotal: unitPrice * row.quantity,
     };
   });
 
-  const subtotal = Number(
-    items.reduce((acc, item) => acc + item.subtotal, 0).toFixed(2),
-  );
+  const subtotal = items.reduce((acc, item) => acc + item.subtotal, 0);
 
   return {
     userId,

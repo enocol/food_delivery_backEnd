@@ -71,7 +71,7 @@ async function upsertUserFromToken(decodedToken) {
         name = COALESCE(EXCLUDED.name, users.name),
         phone = COALESCE(EXCLUDED.phone, users.phone),
         auth_provider = 'firebase'
-      RETURNING firebase_uid, name, email, phone
+      RETURNING firebase_uid, name, email, phone, is_admin
       `,
       [firebaseUid, email, name, phone, hasEmailClaim],
     );

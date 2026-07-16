@@ -10,7 +10,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-async function migrateDriversTable() {
+async function migrateUsersAdminFlag() {
   const client = new Client({
     connectionString: DATABASE_URL,
     ssl: { rejectUnauthorized: false },
@@ -21,18 +21,12 @@ async function migrateDriversTable() {
     await client.query("BEGIN");
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS drivers (
-        id              SERIAL PRIMARY KEY,
-        phone           TEXT,
-        is_online       BOOLEAN NOT NULL DEFAULT FALSE,
-        current_location TEXT,
-        socket_id       TEXT,
-        status          TEXT NOT NULL DEFAULT 'Offline'
-      );
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
     `);
 
     await client.query("COMMIT");
-    console.log("Migration completed: drivers table is ready.");
+    console.log("Migration completed: users.is_admin added.");
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("Migration failed:", error.message);
@@ -42,4 +36,4 @@ async function migrateDriversTable() {
   }
 }
 
-migrateDriversTable();
+migrateUsersAdminFlag();

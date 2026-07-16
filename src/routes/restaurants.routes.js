@@ -2,20 +2,32 @@ const express = require("express");
 const { randomUUID } = require("crypto");
 const pool = require("../config/db");
 const requireRestaurantAuth = require("../middleware/requireRestaurantAuth");
+const { toCurrencyInt } = require("../utils/currency");
 
 const router = express.Router();
 
 function mapRestaurant(row) {
+  const location =
+    row.location && typeof row.location === "string"
+      ? (() => {
+          try {
+            return JSON.parse(row.location);
+          } catch {
+            return row.location;
+          }
+        })()
+      : row.location || null;
+
   return {
     id: row.id,
     name: row.name,
     imageUrl: row.image_url,
     cuisine: row.cuisine,
     rating: Number(row.rating),
-    deliveryFee: Number(row.delivery_fee),
+    deliveryFee: toCurrencyInt(row.delivery_fee) ?? 0,
     deliveryTimeMinutes: row.delivery_time_minutes,
     isOpen: row.is_open,
-    address: row.address || null,
+    location,
   };
 }
 
@@ -26,7 +38,7 @@ function mapMenuItem(row) {
     name: row.name,
     description: row.description,
     imageUrl: row.image_url,
-    price: Number(row.price),
+    price: toCurrencyInt(row.price) ?? 0,
     isAvailable: row.is_available,
   };
 }
@@ -40,19 +52,76 @@ router.post("/", async (req, res) => {
     : [];
 
   const name =
-    restaurantPayload.restaurant_name || restaurantPayload.restaurantName;
+    restaurantPayload.restaurant_name ||
+    restaurantPayload.restaurantName ||
+    restaurantPayload.name;
   const imageUrl =
     restaurantPayload.imageUrl || restaurantPayload.image_url || null;
   const cuisine = restaurantPayload.cuisine;
   const rating = restaurantPayload.rating ?? 0;
-  const deliveryFee =
-    restaurantPayload.deliveryFee ?? restaurantPayload.delivery_fee ?? 0;
+  const rawDeliveryFee =
+    restaurantPayload.deliveryFee ?? restaurantPayload.delivery_fee;
+  const parsedDeliveryFee = toCurrencyInt(rawDeliveryFee ?? 0);
+
+  if (rawDeliveryFee !== undefined && parsedDeliveryFee === null) {
+    return res.status(400).json({
+      message: "deliveryFee must be an integer amount",
+    });
+  }
+
+  const deliveryFee = parsedDeliveryFee ?? 0;
   const deliveryTimeMinutes =
     restaurantPayload.deliveryTimeMinutes ??
     restaurantPayload.delivery_time_minutes ??
     30;
   const isOpen = restaurantPayload.isOpen ?? restaurantPayload.is_open ?? true;
-  const address = restaurantPayload.address || null;
+  const latitude = restaurantPayload.latitude;
+  const longitude = restaurantPayload.longitude;
+  let location = restaurantPayload.location ?? null;
+
+  if (latitude !== undefined || longitude !== undefined) {
+    const parsedLatitude = Number(latitude);
+    const parsedLongitude = Number(longitude);
+
+    if (!Number.isFinite(parsedLatitude) || !Number.isFinite(parsedLongitude)) {
+      return res.status(400).json({
+        message: "latitude and longitude must be valid numbers",
+      });
+    }
+
+    location = {
+      latitude: parsedLatitude,
+      longitude: parsedLongitude,
+    };
+  } else if (
+    restaurantPayload.location &&
+    typeof restaurantPayload.location === "object"
+  ) {
+    const parsedLatitude = Number(restaurantPayload.location.latitude);
+    const parsedLongitude = Number(restaurantPayload.location.longitude);
+
+    if (!Number.isFinite(parsedLatitude) || !Number.isFinite(parsedLongitude)) {
+      return res.status(400).json({
+        message: "location must include numeric latitude and longitude",
+      });
+    }
+
+    location = {
+      latitude: parsedLatitude,
+      longitude: parsedLongitude,
+    };
+  } else if (restaurantPayload.location !== undefined) {
+    return res.status(400).json({
+      message: "location must be an object with numeric latitude and longitude",
+    });
+  }
+
+  if (location === null) {
+    return res.status(400).json({
+      message:
+        "location is required and must include numeric latitude and longitude",
+    });
+  }
 
   if (!name || !cuisine) {
     return res.status(400).json({
@@ -67,13 +136,10 @@ router.post("/", async (req, res) => {
   }
 
   for (const item of menuItemsPayload) {
-    if (
-      !item ||
-      (!item.name && !item.menuName) ||
-      !Number.isFinite(Number(item.price))
-    ) {
+    const parsedItemPrice = toCurrencyInt(item?.price);
+    if (!item || (!item.name && !item.menuName) || parsedItemPrice === null) {
       return res.status(400).json({
-        message: "Each menu item must include name and numeric price",
+        message: "Each menu item must include name and integer price",
       });
     }
   }
@@ -105,9 +171,9 @@ router.post("/", async (req, res) => {
           delivery_fee = $3,
           delivery_time_minutes = $4,
           is_open = $5,
-          address = $6
+          location = $6::jsonb
         WHERE id = $7
-        RETURNING id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, address
+        RETURNING id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, location
         `,
         [
           imageUrl,
@@ -115,7 +181,7 @@ router.post("/", async (req, res) => {
           deliveryFee,
           deliveryTimeMinutes,
           isOpen,
-          address,
+          location,
           restaurantId,
         ],
       );
@@ -138,10 +204,10 @@ router.post("/", async (req, res) => {
           delivery_fee,
           delivery_time_minutes,
           is_open,
-          address
+          location
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, address
+        RETURNING id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, location
         `,
         [
           restaurantId,
@@ -152,7 +218,7 @@ router.post("/", async (req, res) => {
           deliveryFee,
           deliveryTimeMinutes,
           isOpen,
-          address,
+          location,
         ],
       );
     }
@@ -184,7 +250,7 @@ router.post("/", async (req, res) => {
           menuItem.name || menuItem.menuName,
           menuItem.description || null,
           menuItem.imageUrl || menuItem.image_url || null,
-          Number(menuItem.price),
+          toCurrencyInt(menuItem.price),
           menuItem.isAvailable ?? menuItem.is_available ?? true,
         ],
       );
@@ -207,6 +273,176 @@ router.post("/", async (req, res) => {
   }
 });
 
+// PATCH /api/restaurants/:restaurantId
+// Update restaurant table fields only; does not modify menu items.
+router.patch("/:restaurantId", async (req, res) => {
+  const { restaurantId } = req.params;
+
+  const payload = req.body || {};
+  const restaurantPayload =
+    payload.restaurant || payload.restaurantPayload || payload;
+
+  const updates = [];
+  const values = [];
+
+  const name =
+    restaurantPayload.name ||
+    restaurantPayload.restaurantName ||
+    restaurantPayload.restaurant_name;
+  if (name !== undefined) {
+    if (typeof name !== "string" || !name.trim()) {
+      return res
+        .status(400)
+        .json({ message: "name must be a non-empty string" });
+    }
+    values.push(name.trim());
+    updates.push(`name = $${values.length}`);
+  }
+
+  const imageUrl = restaurantPayload.imageUrl ?? restaurantPayload.image_url;
+  if (imageUrl !== undefined) {
+    if (imageUrl !== null && typeof imageUrl !== "string") {
+      return res
+        .status(400)
+        .json({ message: "imageUrl must be a string or null" });
+    }
+    values.push(imageUrl);
+    updates.push(`image_url = $${values.length}`);
+  }
+
+  if (restaurantPayload.cuisine !== undefined) {
+    if (
+      typeof restaurantPayload.cuisine !== "string" ||
+      !restaurantPayload.cuisine.trim()
+    ) {
+      return res
+        .status(400)
+        .json({ message: "cuisine must be a non-empty string" });
+    }
+    values.push(restaurantPayload.cuisine.trim());
+    updates.push(`cuisine = $${values.length}`);
+  }
+
+  if (restaurantPayload.rating !== undefined) {
+    const rating = Number(restaurantPayload.rating);
+    if (!Number.isFinite(rating)) {
+      return res.status(400).json({ message: "rating must be a number" });
+    }
+    values.push(rating);
+    updates.push(`rating = $${values.length}`);
+  }
+
+  const deliveryFee =
+    restaurantPayload.deliveryFee ?? restaurantPayload.delivery_fee;
+  if (deliveryFee !== undefined) {
+    const parsedDeliveryFee = toCurrencyInt(deliveryFee);
+    if (parsedDeliveryFee === null) {
+      return res.status(400).json({
+        message: "deliveryFee must be an integer amount",
+      });
+    }
+    values.push(parsedDeliveryFee);
+    updates.push(`delivery_fee = $${values.length}`);
+  }
+
+  const deliveryTimeMinutes =
+    restaurantPayload.deliveryTimeMinutes ??
+    restaurantPayload.delivery_time_minutes;
+  if (deliveryTimeMinutes !== undefined) {
+    const parsedDeliveryTimeMinutes = Number(deliveryTimeMinutes);
+    if (!Number.isInteger(parsedDeliveryTimeMinutes)) {
+      return res
+        .status(400)
+        .json({ message: "deliveryTimeMinutes must be an integer" });
+    }
+    values.push(parsedDeliveryTimeMinutes);
+    updates.push(`delivery_time_minutes = $${values.length}`);
+  }
+
+  const isOpen = restaurantPayload.isOpen ?? restaurantPayload.is_open;
+  if (isOpen !== undefined) {
+    if (typeof isOpen !== "boolean") {
+      return res.status(400).json({ message: "isOpen must be a boolean" });
+    }
+    values.push(isOpen);
+    updates.push(`is_open = $${values.length}`);
+  }
+
+  const latitude = restaurantPayload.latitude;
+  const longitude = restaurantPayload.longitude;
+  const locationPayload = restaurantPayload.location;
+
+  if (
+    latitude !== undefined ||
+    longitude !== undefined ||
+    locationPayload !== undefined
+  ) {
+    let location = null;
+
+    if (latitude !== undefined || longitude !== undefined) {
+      const parsedLatitude = Number(latitude);
+      const parsedLongitude = Number(longitude);
+      if (
+        !Number.isFinite(parsedLatitude) ||
+        !Number.isFinite(parsedLongitude)
+      ) {
+        return res.status(400).json({
+          message: "latitude and longitude must be valid numbers",
+        });
+      }
+      location = { latitude: parsedLatitude, longitude: parsedLongitude };
+    } else if (locationPayload === null) {
+      location = null;
+    } else if (locationPayload && typeof locationPayload === "object") {
+      const parsedLatitude = Number(locationPayload.latitude);
+      const parsedLongitude = Number(locationPayload.longitude);
+      if (
+        !Number.isFinite(parsedLatitude) ||
+        !Number.isFinite(parsedLongitude)
+      ) {
+        return res.status(400).json({
+          message: "location must include numeric latitude and longitude",
+        });
+      }
+      location = { latitude: parsedLatitude, longitude: parsedLongitude };
+    } else {
+      return res.status(400).json({
+        message:
+          "location must be an object with latitude and longitude or null",
+      });
+    }
+
+    values.push(location);
+    updates.push(`location = $${values.length}::jsonb`);
+  }
+
+  if (updates.length === 0) {
+    return res.status(400).json({
+      message: "At least one restaurant field must be provided to update",
+    });
+  }
+
+  values.push(restaurantId);
+
+  const result = await pool.query(
+    `
+    UPDATE restaurants
+    SET ${updates.join(", ")}
+    WHERE id = $${values.length}
+    RETURNING id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, location
+    `,
+    values,
+  );
+
+  if (result.rowCount === 0) {
+    return res.status(404).json({ message: "Restaurant not found" });
+  }
+
+  return res.status(200).json({
+    restaurant: mapRestaurant(result.rows[0]),
+  });
+});
+
 router.get("/with-menus", async (req, res) => {
   const result = await pool.query(
     `
@@ -219,7 +455,7 @@ router.get("/with-menus", async (req, res) => {
       r.delivery_fee,
       r.delivery_time_minutes,
       r.is_open,
-      r.address,
+      r.location,
       m.id AS menu_id,
       m.name AS menu_name,
       m.description,
@@ -241,10 +477,10 @@ router.get("/with-menus", async (req, res) => {
         imageUrl: row.image_url,
         cuisine: row.cuisine,
         rating: Number(row.rating),
-        deliveryFee: Number(row.delivery_fee),
+        deliveryFee: toCurrencyInt(row.delivery_fee) ?? 0,
         deliveryTimeMinutes: row.delivery_time_minutes,
         isOpen: row.is_open,
-        address: row.address || null,
+        location: row.location || null,
         menus: [],
       };
     }
@@ -256,7 +492,7 @@ router.get("/with-menus", async (req, res) => {
         name: row.menu_name,
         description: row.description,
         imageUrl: row.menu_image_url,
-        price: Number(row.price),
+        price: toCurrencyInt(row.price) ?? 0,
         isAvailable: row.is_available,
       });
     }
@@ -288,7 +524,7 @@ router.get("/", async (req, res) => {
 
   const result = await pool.query(
     `
-    SELECT id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, address
+    SELECT id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, location
     FROM restaurants
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY name ASC
@@ -306,7 +542,7 @@ router.get("/", async (req, res) => {
 router.get("/:restaurantId", async (req, res) => {
   const restaurantResult = await pool.query(
     `
-    SELECT id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, address
+    SELECT id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, location
     FROM restaurants
     WHERE id = $1
     `,
@@ -328,7 +564,7 @@ router.get("/:restaurantId", async (req, res) => {
 router.get("/:restaurantId/menu", async (req, res) => {
   const restaurantResult = await pool.query(
     `
-    SELECT id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, address
+    SELECT id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, location
     FROM restaurants
     WHERE id = $1
     `,
@@ -357,7 +593,7 @@ router.get("/:restaurantId/menu", async (req, res) => {
     name: item.name,
     description: item.description,
     imageUrl: item.image_url,
-    price: Number(item.price),
+    price: toCurrencyInt(item.price) ?? 0,
     isAvailable: item.is_available,
   }));
 

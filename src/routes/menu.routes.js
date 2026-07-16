@@ -1,6 +1,7 @@
 const express = require("express");
 const { randomUUID } = require("crypto");
 const pool = require("../config/db");
+const { toCurrencyInt } = require("../utils/currency");
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ function mapMenuItem(row) {
     name: row.name,
     description: row.description,
     imageUrl: row.image_url,
-    price: Number(row.price),
+    price: toCurrencyInt(row.price) ?? 0,
     isAvailable: row.is_available,
   };
 }
@@ -22,7 +23,7 @@ router.post("/", async (req, res) => {
   const name = payload.name || payload.menuName || payload.menu_name;
   const description = payload.description || null;
   const imageUrl = payload.imageUrl || payload.image_url || null;
-  const price = Number(payload.price);
+  const price = toCurrencyInt(payload.price);
   const isAvailable = payload.is_available ?? payload.isAvailable ?? true;
 
   if (!restaurantId || !restaurantId.trim()) {
@@ -37,9 +38,9 @@ router.post("/", async (req, res) => {
     });
   }
 
-  if (!Number.isFinite(price)) {
+  if (price === null) {
     return res.status(400).json({
-      message: "price must be a valid number",
+      message: "price must be an integer amount",
     });
   }
 
@@ -146,7 +147,7 @@ router.get("/items/:itemId", async (req, res) => {
       name: item.name,
       description: item.description,
       imageUrl: item.image_url,
-      price: Number(item.price),
+      price: toCurrencyInt(item.price) ?? 0,
       isAvailable: item.is_available,
     },
     restaurant: restaurant
@@ -156,7 +157,7 @@ router.get("/items/:itemId", async (req, res) => {
           imageUrl: restaurant.image_url,
           cuisine: restaurant.cuisine,
           rating: Number(restaurant.rating),
-          deliveryFee: Number(restaurant.delivery_fee),
+          deliveryFee: toCurrencyInt(restaurant.delivery_fee) ?? 0,
           deliveryTimeMinutes: restaurant.delivery_time_minutes,
           isOpen: restaurant.is_open,
         }
@@ -198,10 +199,10 @@ async function patchMenuItem(req, res) {
   }
 
   if (Object.prototype.hasOwnProperty.call(payload, "price")) {
-    const parsedPrice = Number(payload.price);
-    if (!Number.isFinite(parsedPrice)) {
+    const parsedPrice = toCurrencyInt(payload.price);
+    if (parsedPrice === null) {
       return res.status(400).json({
-        message: "price must be a valid number",
+        message: "price must be an integer amount",
       });
     }
     params.push(parsedPrice);

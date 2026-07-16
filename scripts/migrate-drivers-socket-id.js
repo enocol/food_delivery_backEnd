@@ -10,7 +10,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-async function migrateDriversTable() {
+async function migrateDriversSocketId() {
   const client = new Client({
     connectionString: DATABASE_URL,
     ssl: { rejectUnauthorized: false },
@@ -21,18 +21,12 @@ async function migrateDriversTable() {
     await client.query("BEGIN");
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS drivers (
-        id              SERIAL PRIMARY KEY,
-        phone           TEXT,
-        is_online       BOOLEAN NOT NULL DEFAULT FALSE,
-        current_location TEXT,
-        socket_id       TEXT,
-        status          TEXT NOT NULL DEFAULT 'Offline'
-      );
+      ALTER TABLE drivers
+      ADD COLUMN IF NOT EXISTS socket_id TEXT;
     `);
 
     await client.query("COMMIT");
-    console.log("Migration completed: drivers table is ready.");
+    console.log("Migration completed: socket_id column added to drivers.");
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("Migration failed:", error.message);
@@ -42,4 +36,4 @@ async function migrateDriversTable() {
   }
 }
 
-migrateDriversTable();
+migrateDriversSocketId();

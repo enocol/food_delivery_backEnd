@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT,
   phone TEXT,
+  is_admin BOOLEAN NOT NULL DEFAULT FALSE,
   auth_provider TEXT NOT NULL DEFAULT 'firebase' CHECK (auth_provider IN ('local', 'emailjs', 'firebase')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -32,7 +33,7 @@ CREATE TABLE IF NOT EXISTS restaurants (
   delivery_fee NUMERIC(10, 2) NOT NULL DEFAULT 0,
   delivery_time_minutes INTEGER NOT NULL DEFAULT 30,
   is_open BOOLEAN NOT NULL DEFAULT TRUE,
-  address TEXT,
+  location JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -107,8 +108,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
   order_id TEXT NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
   rider_name TEXT,
   rider_phone TEXT,
-  current_lat NUMERIC(10, 7),
-  current_lng NUMERIC(10, 7),
+  current_location TEXT,
   eta_minutes INTEGER,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
