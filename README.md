@@ -69,6 +69,7 @@ GET http://localhost:5000/api/health
 - `POST /api/drivers/deliveries/:orderId/accept` (Bearer Firebase ID token required)
 - `PATCH /api/drivers/deliveries/:orderId/status` (Bearer Firebase ID token required, assigned driver only)
 - `POST /api/push-tokens` (Bearer Firebase ID token required)
+- `DELETE /api/push-tokens` (Bearer Firebase ID token required)
 
 ## Notes
 

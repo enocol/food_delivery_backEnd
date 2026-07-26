@@ -39,8 +39,29 @@ function toPublicPushToken(row) {
 }
 
 router.post("/", requireAuth, async (req, res, next) => {
-  const { token, platform, deviceId, appVersion, locale } = req.body || {};
+  const {
+    firebase_uid: firebaseUidFromBody,
+    token,
+    platform,
+    device_id: deviceIdFromBody,
+    deviceId,
+    app_version: appVersionFromBody,
+    appVersion,
+    locale,
+    is_active: isActive,
+  } = req.body || {};
+  const resolvedDeviceId = deviceIdFromBody ?? deviceId;
+  const resolvedAppVersion = appVersionFromBody ?? appVersion;
   const firebaseUid = req.auth.user.firebase_uid;
+
+  if (
+    firebaseUidFromBody != null &&
+    String(firebaseUidFromBody).trim() !== firebaseUid
+  ) {
+    return res.status(403).json({
+      message: "firebase_uid in body must match authenticated user",
+    });
+  }
 
   if (!isNonEmptyString(token)) {
     return res.status(400).json({
@@ -61,19 +82,27 @@ router.post("/", requireAuth, async (req, res, next) => {
     });
   }
 
-  const normalizedDeviceId = normalizeOptionalString(deviceId);
+  const normalizedDeviceId = normalizeOptionalString(resolvedDeviceId);
   if (normalizedDeviceId === undefined) {
     return res.status(400).json({
       message: "deviceId must be a string when provided",
     });
   }
 
-  const normalizedAppVersion = normalizeOptionalString(appVersion);
+  const normalizedAppVersion = normalizeOptionalString(resolvedAppVersion);
   if (normalizedAppVersion === undefined) {
     return res.status(400).json({
       message: "appVersion must be a string when provided",
     });
   }
+
+  if (isActive != null && typeof isActive !== "boolean") {
+    return res.status(400).json({
+      message: "is_active must be a boolean when provided",
+    });
+  }
+
+  const normalizedIsActive = typeof isActive === "boolean" ? isActive : true;
 
   const normalizedLocale = normalizeOptionalString(locale);
   if (normalizedLocale === undefined) {
@@ -127,7 +156,7 @@ router.post("/", requireAuth, async (req, res, next) => {
           device_id = $4,
           app_version = $5,
           locale = $6,
-          is_active = TRUE,
+          is_active = $7,
           last_seen_at = NOW(),
           updated_at = NOW()
         WHERE id = $1
@@ -140,6 +169,7 @@ router.post("/", requireAuth, async (req, res, next) => {
           normalizedDeviceId,
           normalizedAppVersion,
           normalizedLocale,
+          normalizedIsActive,
         ],
       );
       pushTokenRecord = updateResult.rows[0];
@@ -155,26 +185,17 @@ router.post("/", requireAuth, async (req, res, next) => {
         [normalizedToken],
       );
 
-      if (
-        tokenConflictResult.rowCount > 0 &&
-        tokenConflictResult.rows[0].firebase_uid !== firebaseUid
-      ) {
-        await client.query("ROLLBACK");
-        return res.status(409).json({
-          message: "token is already registered to another user",
-        });
-      }
-
       if (tokenConflictResult.rowCount > 0) {
         const updateResult = await client.query(
           `
           UPDATE user_push_tokens
           SET
-            platform = $2,
-            device_id = $3,
-            app_version = $4,
-            locale = $5,
-            is_active = TRUE,
+            firebase_uid = $2,
+            platform = $3,
+            device_id = $4,
+            app_version = $5,
+            locale = $6,
+            is_active = $7,
             last_seen_at = NOW(),
             updated_at = NOW()
           WHERE id = $1
@@ -182,10 +203,12 @@ router.post("/", requireAuth, async (req, res, next) => {
           `,
           [
             tokenConflictResult.rows[0].id,
+            firebaseUid,
             normalizedPlatform,
             normalizedDeviceId,
             normalizedAppVersion,
             normalizedLocale,
+            normalizedIsActive,
           ],
         );
         pushTokenRecord = updateResult.rows[0];
@@ -205,7 +228,7 @@ router.post("/", requireAuth, async (req, res, next) => {
             created_at,
             updated_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, NOW(), NOW(), NOW())
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), NOW())
           RETURNING *
           `,
           [
@@ -216,6 +239,7 @@ router.post("/", requireAuth, async (req, res, next) => {
             normalizedDeviceId,
             normalizedAppVersion,
             normalizedLocale,
+            normalizedIsActive,
           ],
         );
         pushTokenRecord = insertResult.rows[0];
@@ -240,6 +264,81 @@ router.post("/", requireAuth, async (req, res, next) => {
     return next(error);
   } finally {
     client.release();
+  }
+});
+
+router.delete("/", requireAuth, async (req, res, next) => {
+  const { token, deviceId } = req.body || {};
+  const firebaseUid = req.auth.user.firebase_uid;
+
+  const normalizedToken = normalizeOptionalString(token);
+  if (normalizedToken === undefined) {
+    return res.status(400).json({
+      message: "token must be a string when provided",
+    });
+  }
+
+  const normalizedDeviceId = normalizeOptionalString(deviceId);
+  if (normalizedDeviceId === undefined) {
+    return res.status(400).json({
+      message: "deviceId must be a string when provided",
+    });
+  }
+
+  if (!normalizedToken && !normalizedDeviceId) {
+    return res.status(400).json({
+      message: "token or deviceId is required",
+    });
+  }
+
+  try {
+    let result;
+
+    if (normalizedToken && normalizedDeviceId) {
+      result = await pool.query(
+        `
+        UPDATE user_push_tokens
+        SET is_active = FALSE, updated_at = NOW()
+        WHERE firebase_uid = $1
+          AND fcm_token = $2
+          AND device_id = $3
+          AND is_active = TRUE
+        RETURNING id
+        `,
+        [firebaseUid, normalizedToken, normalizedDeviceId],
+      );
+    } else if (normalizedToken) {
+      result = await pool.query(
+        `
+        UPDATE user_push_tokens
+        SET is_active = FALSE, updated_at = NOW()
+        WHERE firebase_uid = $1
+          AND fcm_token = $2
+          AND is_active = TRUE
+        RETURNING id
+        `,
+        [firebaseUid, normalizedToken],
+      );
+    } else {
+      result = await pool.query(
+        `
+        UPDATE user_push_tokens
+        SET is_active = FALSE, updated_at = NOW()
+        WHERE firebase_uid = $1
+          AND device_id = $2
+          AND is_active = TRUE
+        RETURNING id
+        `,
+        [firebaseUid, normalizedDeviceId],
+      );
+    }
+
+    return res.status(200).json({
+      message: "Push token deactivated",
+      deactivatedCount: result.rowCount,
+    });
+  } catch (error) {
+    return next(error);
   }
 });
 
