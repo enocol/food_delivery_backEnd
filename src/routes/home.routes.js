@@ -415,10 +415,10 @@ const endpoints = [
         method: "POST",
         path: "/api/orders",
         description:
-          "Place an order from the current cart. Cart is cleared after a successful order.",
+          "Place an order from the current cart. Cart is cleared after a successful order. deliveryFee is calculated automatically from the distance between each restaurant's location and deliveryAddress, at 500 francs per mile (using the farthest restaurant when the cart spans multiple restaurants).",
         auth: true,
         body: {
-          deliveryAddress: "12 Independence Ave, Accra",
+          deliveryAddress: { latitude: 5.6037, longitude: -0.187 },
           paymentMethod: "cash_on_delivery",
         },
         sample: {
@@ -436,9 +436,9 @@ const endpoints = [
               },
             ],
             subtotal: 50,
-            deliveryFee: 20,
-            total: 70,
-            deliveryAddress: "12 Independence Ave, Accra",
+            deliveryFee: 1450,
+            total: 1500,
+            deliveryAddress: { latitude: 5.6037, longitude: -0.187 },
             paymentMethod: "cash_on_delivery",
             status: "pending",
             createdAt: "2026-05-25T10:05:00.000Z",

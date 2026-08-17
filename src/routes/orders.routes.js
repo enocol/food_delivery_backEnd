@@ -1,7 +1,11 @@
 const express = require("express");
 const { randomUUID } = require("crypto");
 const pool = require("../config/db");
-const { ORDER_STATUSES, PAYMENT_METHODS } = require("../utils/constants");
+const {
+  ORDER_STATUSES,
+  PAYMENT_METHODS,
+  DELIVERY_FEE_PER_MILE,
+} = require("../utils/constants");
 const {
   buildIdempotencyRequestHash,
   ensureIdempotencyTable,
@@ -10,6 +14,7 @@ const { toCurrencyInt } = require("../utils/currency");
 const {
   parseCoordinateValue,
   toCoordinateStorageValue,
+  haversineDistanceMiles,
 } = require("../utils/coordinates");
 const { withSchemaVersion } = require("../utils/eventPayload");
 const { toRfc3339Utc } = require("../utils/time");
@@ -186,17 +191,6 @@ async function sendOrderStatusPush(orderId, customerUid, status) {
 }
 
 function normalizeDeliveryAddress(deliveryAddress) {
-  if (typeof deliveryAddress === "string") {
-    const trimmed = deliveryAddress.trim();
-    if (!trimmed) {
-      return { error: "deliveryAddress is required" };
-    }
-    return {
-      dbValue: trimmed,
-      payloadValue: trimmed,
-    };
-  }
-
   if (deliveryAddress && typeof deliveryAddress === "object") {
     const latitude = Number(deliveryAddress.latitude);
     const longitude = Number(deliveryAddress.longitude);
@@ -216,7 +210,7 @@ function normalizeDeliveryAddress(deliveryAddress) {
 
   return {
     error:
-      "deliveryAddress is required and must be either a string or an object with latitude and longitude",
+      "deliveryAddress is required and must be an object with numeric latitude and longitude, so the delivery fee can be calculated",
   };
 }
 
@@ -540,7 +534,45 @@ router.post("/", requireAuth, async (req, res) => {
     });
   }
 
-  const deliveryFee = 1500; // Flat delivery fee in cents
+  const restaurantIds = [
+    ...new Set(hydrated.items.map((item) => item.restaurantId)),
+  ];
+
+  const restaurantsResult = await pool.query(
+    `
+    SELECT id, name, location
+    FROM restaurants
+    WHERE id = ANY($1::text[])
+    `,
+    [restaurantIds],
+  );
+
+  const restaurantLookup = new Map(
+    restaurantsResult.rows.map((row) => [row.id, row]),
+  );
+
+  let farthestDistanceMiles = 0;
+  for (const restaurantId of restaurantIds) {
+    const restaurant = restaurantLookup.get(restaurantId);
+    const restaurantCoordinates = parseCoordinateValue(restaurant?.location);
+
+    if (!restaurantCoordinates) {
+      return res.status(400).json({
+        message:
+          "One or more restaurants in your cart do not have a location set, so the delivery fee cannot be calculated",
+      });
+    }
+
+    const distanceMiles = haversineDistanceMiles(
+      restaurantCoordinates,
+      deliveryAddressForPayload,
+    );
+    farthestDistanceMiles = Math.max(farthestDistanceMiles, distanceMiles);
+  }
+
+  const deliveryFee = Math.round(
+    farthestDistanceMiles * DELIVERY_FEE_PER_MILE,
+  );
   const total = hydrated.subtotal + deliveryFee;
 
   const orderId = `o_${randomUUID()}`;
@@ -692,9 +724,6 @@ router.post("/", requireAuth, async (req, res) => {
   // Notify each restaurant involved in this order via Socket.io
   const io = req.app.get("io");
   if (io) {
-    const restaurantIds = [
-      ...new Set(hydrated.items.map((item) => item.restaurantId)),
-    ];
     const createdAt = new Date().toISOString();
     const customerPhone = userResult.rows[0].phone ?? null;
     for (const restaurantId of restaurantIds) {
@@ -722,19 +751,6 @@ router.post("/", requireAuth, async (req, res) => {
     }
 
     try {
-      const restaurantsResult = await pool.query(
-        `
-        SELECT id, name, location
-        FROM restaurants
-        WHERE id = ANY($1::text[])
-        `,
-        [restaurantIds],
-      );
-
-      const restaurantLookup = new Map(
-        restaurantsResult.rows.map((row) => [row.id, row]),
-      );
-
       const restaurants = restaurantIds.map((restaurantId) => {
         const restaurant = restaurantLookup.get(restaurantId);
         const itemNames = [

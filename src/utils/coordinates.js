@@ -56,7 +56,28 @@ function toCoordinateStorageValue(value) {
   return JSON.stringify(coordinate);
 }
 
+const EARTH_RADIUS_MILES = 3958.8;
+
+function toRadians(deg) {
+  return (deg * Math.PI) / 180;
+}
+
+function haversineDistanceMiles(from, to) {
+  const dLat = toRadians(to.latitude - from.latitude);
+  const dLng = toRadians(to.longitude - from.longitude);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(from.latitude)) *
+      Math.cos(toRadians(to.latitude)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return EARTH_RADIUS_MILES * c;
+}
+
 module.exports = {
   parseCoordinateValue,
   toCoordinateStorageValue,
+  haversineDistanceMiles,
 };
