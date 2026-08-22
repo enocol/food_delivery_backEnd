@@ -21,6 +21,7 @@ const { toRfc3339Utc } = require("../utils/time");
 const { getFirebaseMessaging } = require("../config/firebaseAdmin");
 const requireAuth = require("../middleware/requireAuth");
 const requireRestaurantAuth = require("../middleware/requireRestaurantAuth");
+const requireVerifiedEmail = require("../middleware/requireVerifiedEmail");
 
 const router = express.Router();
 
@@ -462,7 +463,7 @@ async function getAllOrdersWithRestaurants() {
   });
 }
 
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
   const { deliveryAddress, paymentMethod } = req.body;
   const userId = req.auth.userId;
   const idempotencyKey = req.get("Idempotency-Key")?.trim() || null;
