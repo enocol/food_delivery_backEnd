@@ -473,46 +473,16 @@ async function getAllOrdersWithRestaurants() {
   });
 }
 
-router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
-  console.log("Order create payload (req.body):", req.body);
-  const { deliveryAddress, paymentMethod } = req.body;
-  const userId = req.auth.userId;
-  const idempotencyKey = req.get("Idempotency-Key")?.trim() || null;
-  const idempotencyScope = "orders.create";
-  const requestHash = buildIdempotencyRequestHash({
-    deliveryAddress,
-    paymentMethod,
-  });
-
-  if (deliveryAddress == null || !paymentMethod) {
-    return res.status(400).json({
-      message: "deliveryAddress and paymentMethod are required",
-    });
-  }
-
+async function buildOrderQuote(userId, deliveryAddress) {
   const normalizedDeliveryAddress = normalizeDeliveryAddress(deliveryAddress);
   if (normalizedDeliveryAddress.error) {
-    return res.status(400).json({ message: normalizedDeliveryAddress.error });
+    return {
+      error: { status: 400, message: normalizedDeliveryAddress.error },
+    };
   }
 
   const deliveryAddressForDb = normalizedDeliveryAddress.dbValue;
   const deliveryAddressForPayload = normalizedDeliveryAddress.payloadValue;
-
-  if (!PAYMENT_METHODS.includes(paymentMethod)) {
-    return res.status(400).json({
-      message: `paymentMethod must be one of: ${PAYMENT_METHODS.join(", ")}`,
-    });
-  }
-
-  const userResult = await pool.query(
-    "SELECT firebase_uid, phone FROM users WHERE firebase_uid = $1",
-    [userId],
-  );
-  if (userResult.rowCount === 0) {
-    return res.status(404).json({
-      message: "User not found",
-    });
-  }
 
   const cartItemsResult = await pool.query(
     `
@@ -541,9 +511,7 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
   );
 
   if (hydrated.items.length === 0) {
-    return res.status(400).json({
-      message: "Cart is empty",
-    });
+    return { error: { status: 400, message: "Cart is empty" } };
   }
 
   const restaurantIds = [
@@ -551,10 +519,13 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
   ];
 
   if (restaurantIds.length > 1) {
-    return res.status(400).json({
-      message:
-        "Cart contains items from multiple restaurants; an order can only be placed for a single restaurant",
-    });
+    return {
+      error: {
+        status: 400,
+        message:
+          "Cart contains items from multiple restaurants; an order can only be placed for a single restaurant",
+      },
+    };
   }
 
   const restaurantId = restaurantIds[0];
@@ -572,10 +543,13 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
   const restaurantCoordinates = parseCoordinateValue(restaurant?.location);
 
   if (!restaurantCoordinates) {
-    return res.status(400).json({
-      message:
-        "The restaurant in your cart does not have a location set, so the delivery fee cannot be calculated",
-    });
+    return {
+      error: {
+        status: 400,
+        message:
+          "The restaurant in your cart does not have a location set, so the delivery fee cannot be calculated",
+      },
+    };
   }
 
   const distanceMiles = haversineDistanceMiles(
@@ -584,6 +558,102 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
   );
   const deliveryFee = Math.round(distanceMiles * DELIVERY_FEE_PER_MILE);
   const total = hydrated.subtotal + deliveryFee;
+
+  return {
+    hydrated,
+    restaurantId,
+    restaurant,
+    deliveryAddressForDb,
+    deliveryAddressForPayload,
+    deliveryFee,
+    total,
+  };
+}
+
+router.post("/quote", requireAuth, async (req, res) => {
+  const { deliveryAddress } = req.body;
+  const userId = req.auth.userId;
+
+  if (deliveryAddress == null) {
+    return res.status(400).json({
+      message: "deliveryAddress is required",
+    });
+  }
+
+  const quote = await buildOrderQuote(userId, deliveryAddress);
+  if (quote.error) {
+    return res
+      .status(quote.error.status)
+      .json({ message: quote.error.message });
+  }
+
+  return res.status(200).json({
+    restaurant: {
+      id: quote.restaurantId,
+      name: quote.restaurant?.name ?? null,
+    },
+    items: quote.hydrated.items.map((item) => ({
+      menuItemId: item.menuItemId,
+      name: item.name,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      subtotal: item.subtotal,
+    })),
+    subtotal: quote.hydrated.subtotal,
+    deliveryFee: quote.deliveryFee,
+    total: quote.total,
+  });
+});
+
+router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
+  console.log("Order create payload (req.body):", req.body);
+  const { deliveryAddress, paymentMethod } = req.body;
+  const userId = req.auth.userId;
+  const idempotencyKey = req.get("Idempotency-Key")?.trim() || null;
+  const idempotencyScope = "orders.create";
+  const requestHash = buildIdempotencyRequestHash({
+    deliveryAddress,
+    paymentMethod,
+  });
+
+  if (deliveryAddress == null || !paymentMethod) {
+    return res.status(400).json({
+      message: "deliveryAddress and paymentMethod are required",
+    });
+  }
+
+  if (!PAYMENT_METHODS.includes(paymentMethod)) {
+    return res.status(400).json({
+      message: `paymentMethod must be one of: ${PAYMENT_METHODS.join(", ")}`,
+    });
+  }
+
+  const userResult = await pool.query(
+    "SELECT firebase_uid, phone FROM users WHERE firebase_uid = $1",
+    [userId],
+  );
+  if (userResult.rowCount === 0) {
+    return res.status(404).json({
+      message: "User not found",
+    });
+  }
+
+  const quote = await buildOrderQuote(userId, deliveryAddress);
+  if (quote.error) {
+    return res
+      .status(quote.error.status)
+      .json({ message: quote.error.message });
+  }
+
+  const {
+    hydrated,
+    restaurantId,
+    restaurant,
+    deliveryAddressForDb,
+    deliveryAddressForPayload,
+    deliveryFee,
+    total,
+  } = quote;
 
   const orderId = `o_${randomUUID()}`;
 
