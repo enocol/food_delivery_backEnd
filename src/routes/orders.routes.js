@@ -46,13 +46,13 @@ function getOrderStatusNotificationContent(orderId, status) {
   if (status === "cancelled") {
     return {
       title: "Order cancelled",
-      body: `Your order #${orderId} was cancelled by the restaurant.`,
+      body: `Your order was cancelled by the restaurant.`,
     };
   }
 
   return {
     title: "Order confirmed",
-    body: `Your order #${orderId} has been confirmed by the restaurant.`,
+    body: `Your order has been confirmed by the restaurant.`,
   };
 }
 
