@@ -12,6 +12,8 @@
     "db:migrate:users-admin-flag": "node scripts/migrate-users-admin-flag.js",
     "db:migrate:payment-methods": "node scripts/migrate-payment-methods.js",
     "db:migrate:restaurant-address": "node scripts/migrate-restaurant-address.js",
+    "db:migrate:orders-restaurant-id": "node scripts/migrate-orders-restaurant-id.js",
+    "db:migrate:orders-restaurant-id-not-null": "node scripts/migrate-orders-restaurant-id-not-null.js",
     "db:migrate:restaurant-location": "node scripts/migrate-restaurant-address.js",
     "db:migrate:menu-item-image-url": "node scripts/migrate-menu-item-image-url.js",
     "db:migrate:cart-items-image-url": "node scripts/migrate-cart-items-image-url.js",

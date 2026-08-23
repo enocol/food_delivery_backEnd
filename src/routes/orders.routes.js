@@ -474,6 +474,7 @@ async function getAllOrdersWithRestaurants() {
 }
 
 router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
+  console.log("Order create payload (req.body):", req.body);
   const { deliveryAddress, paymentMethod } = req.body;
   const userId = req.auth.userId;
   const idempotencyKey = req.get("Idempotency-Key")?.trim() || null;
@@ -549,39 +550,39 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
     ...new Set(hydrated.items.map((item) => item.restaurantId)),
   ];
 
-  const restaurantsResult = await pool.query(
+  if (restaurantIds.length > 1) {
+    return res.status(400).json({
+      message:
+        "Cart contains items from multiple restaurants; an order can only be placed for a single restaurant",
+    });
+  }
+
+  const restaurantId = restaurantIds[0];
+
+  const restaurantResult = await pool.query(
     `
     SELECT id, name, location
     FROM restaurants
-    WHERE id = ANY($1::text[])
+    WHERE id = $1
     `,
-    [restaurantIds],
+    [restaurantId],
   );
 
-  const restaurantLookup = new Map(
-    restaurantsResult.rows.map((row) => [row.id, row]),
-  );
+  const restaurant = restaurantResult.rows[0];
+  const restaurantCoordinates = parseCoordinateValue(restaurant?.location);
 
-  let farthestDistanceMiles = 0;
-  for (const restaurantId of restaurantIds) {
-    const restaurant = restaurantLookup.get(restaurantId);
-    const restaurantCoordinates = parseCoordinateValue(restaurant?.location);
-
-    if (!restaurantCoordinates) {
-      return res.status(400).json({
-        message:
-          "One or more restaurants in your cart do not have a location set, so the delivery fee cannot be calculated",
-      });
-    }
-
-    const distanceMiles = haversineDistanceMiles(
-      restaurantCoordinates,
-      deliveryAddressForPayload,
-    );
-    farthestDistanceMiles = Math.max(farthestDistanceMiles, distanceMiles);
+  if (!restaurantCoordinates) {
+    return res.status(400).json({
+      message:
+        "The restaurant in your cart does not have a location set, so the delivery fee cannot be calculated",
+    });
   }
 
-  const deliveryFee = Math.round(farthestDistanceMiles * DELIVERY_FEE_PER_MILE);
+  const distanceMiles = haversineDistanceMiles(
+    restaurantCoordinates,
+    deliveryAddressForPayload,
+  );
+  const deliveryFee = Math.round(distanceMiles * DELIVERY_FEE_PER_MILE);
   const total = hydrated.subtotal + deliveryFee;
 
   const orderId = `o_${randomUUID()}`;
@@ -632,6 +633,7 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
       INSERT INTO orders (
         id,
         firebase_uid,
+        restaurant_id,
         subtotal,
         delivery_fee,
         total,
@@ -639,11 +641,12 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
         payment_method,
         status
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
       `,
       [
         orderId,
         userId,
+        restaurantId,
         hydrated.subtotal,
         deliveryFee,
         total,
@@ -730,59 +733,42 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
 
   const order = responseBody.order;
 
-  // Notify each restaurant involved in this order via Socket.io
+  // Notify the restaurant via Socket.io
   const io = req.app.get("io");
   if (io) {
     const createdAt = new Date().toISOString();
     const customerPhone = userResult.rows[0].phone ?? null;
-    for (const restaurantId of restaurantIds) {
-      const restaurantItems = hydrated.items.filter(
-        (item) => item.restaurantId === restaurantId,
-      );
-      const restaurantSubtotal = Number(
-        restaurantItems.reduce((acc, item) => acc + item.subtotal, 0),
-      );
-      const restaurantTotal = restaurantSubtotal + deliveryFee;
-      io.to(`restaurant:${restaurantId}`).emit(
-        "new_order",
-        withSchemaVersion({
-          orderId,
-          items: restaurantItems,
-          subtotal: restaurantSubtotal,
-          deliveryFee,
-          total: restaurantTotal,
-          deliveryAddress: deliveryAddressForPayload,
-          paymentMethod,
-          customerPhone,
-          createdAt,
-        }),
-      );
-    }
+
+    io.to(`restaurant:${restaurantId}`).emit(
+      "new_order",
+      withSchemaVersion({
+        orderId,
+        items: hydrated.items,
+        subtotal: hydrated.subtotal,
+        deliveryFee,
+        total,
+        deliveryAddress: deliveryAddressForPayload,
+        paymentMethod,
+        customerPhone,
+        createdAt,
+      }),
+    );
 
     try {
-      const restaurants = restaurantIds.map((restaurantId) => {
-        const restaurant = restaurantLookup.get(restaurantId);
-        const itemNames = [
-          ...new Set(
-            hydrated.items
-              .filter((item) => item.restaurantId === restaurantId)
-              .map((item) => item.name),
-          ),
-        ];
-
-        return {
-          id: restaurantId,
-          name: restaurant?.name || null,
-          location: restaurant?.location || null,
-          itemNames,
-        };
-      });
+      const itemNames = [...new Set(hydrated.items.map((item) => item.name))];
 
       const adminNewOrderPayload = {
         orderId,
         deliveryAddress: deliveryAddressForPayload,
         paymentMethod,
-        restaurants,
+        restaurants: [
+          {
+            id: restaurantId,
+            name: restaurant?.name || null,
+            location: restaurant?.location || null,
+            itemNames,
+          },
+        ],
         createdAt,
       };
 
@@ -1002,11 +988,9 @@ router.delete("/:orderId", requireRestaurantAuth, async (req, res) => {
 
   const orderResult = await pool.query(
     `
-    SELECT o.status
-    FROM orders o
-    JOIN order_items oi ON oi.order_id = o.id
-    WHERE o.id = $1 AND oi.restaurant_id = $2
-    LIMIT 1
+    SELECT status
+    FROM orders
+    WHERE id = $1 AND restaurant_id = $2
     `,
     [orderId, req.restaurantAuth.restaurantId],
   );
@@ -1107,9 +1091,10 @@ router.patch("/:orderId/status", requireRestaurantAuth, async (req, res) => {
       UPDATE orders
       SET status = $1
       WHERE id = $2
+        AND restaurant_id = $3
       RETURNING id, firebase_uid
       `,
-      [status, req.params.orderId],
+      [status, req.params.orderId, req.restaurantAuth.restaurantId],
     );
 
     if (updateResult.rowCount === 0) {
@@ -1193,11 +1178,8 @@ router.patch("/:orderId/status", requireRestaurantAuth, async (req, res) => {
           r.name        AS restaurant_name,
           r.location    AS pickup_address
         FROM orders o
-        JOIN order_items oi ON oi.order_id = o.id
-        JOIN menu_items mi  ON mi.id = oi.menu_item_id
-        JOIN restaurants r  ON r.id = mi.restaurant_id
+        JOIN restaurants r ON r.id = o.restaurant_id
         WHERE o.id = $1
-        LIMIT 1
         `,
         [req.params.orderId],
       );
