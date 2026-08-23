@@ -42,21 +42,28 @@ function chunkArray(values, chunkSize) {
   return chunks;
 }
 
-function getOrderStatusNotificationContent(orderId, status) {
+function getOrderStatusNotificationContent(status, restaurantName) {
+  const restaurantLabel = restaurantName || "the restaurant";
+
   if (status === "cancelled") {
     return {
       title: "Order cancelled",
-      body: `Your order was cancelled by the restaurant.`,
+      body: `Your order was cancelled by ${restaurantLabel}.`,
     };
   }
 
   return {
     title: "Order confirmed",
-    body: `Your order has been confirmed by the restaurant.`,
+    body: `Your order has been confirmed by ${restaurantLabel}.`,
   };
 }
 
-async function sendOrderStatusPush(orderId, customerUid, status) {
+async function sendOrderStatusPush(
+  orderId,
+  customerUid,
+  status,
+  restaurantName,
+) {
   const tokensResult = await pool.query(
     `
     SELECT fcm_token
@@ -86,7 +93,10 @@ async function sendOrderStatusPush(orderId, customerUid, status) {
     }
   }
 
-  const notification = getOrderStatusNotificationContent(orderId, status);
+  const notification = getOrderStatusNotificationContent(
+    status,
+    restaurantName,
+  );
   const updatedAt = new Date().toISOString();
   const inactiveTokens = [];
   const invalidTokenCodes = new Set([
@@ -1217,7 +1227,18 @@ router.patch("/:orderId/status", requireRestaurantAuth, async (req, res) => {
 
   if (["confirmed", "cancelled"].includes(status) && customerUid) {
     try {
-      await sendOrderStatusPush(req.params.orderId, customerUid, status);
+      const restaurantResult = await pool.query(
+        "SELECT name FROM restaurants WHERE id = $1",
+        [req.restaurantAuth.restaurantId],
+      );
+      const restaurantName = restaurantResult.rows[0]?.name ?? null;
+
+      await sendOrderStatusPush(
+        req.params.orderId,
+        customerUid,
+        status,
+        restaurantName,
+      );
     } catch (error) {
       console.error(
         `Failed to send order status push for order ${req.params.orderId} (status: ${status}):`,
