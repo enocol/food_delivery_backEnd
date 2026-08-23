@@ -571,9 +571,7 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
     farthestDistanceMiles = Math.max(farthestDistanceMiles, distanceMiles);
   }
 
-  const deliveryFee = Math.round(
-    farthestDistanceMiles * DELIVERY_FEE_PER_MILE,
-  );
+  const deliveryFee = Math.round(farthestDistanceMiles * DELIVERY_FEE_PER_MILE);
   const total = hydrated.subtotal + deliveryFee;
 
   const orderId = `o_${randomUUID()}`;

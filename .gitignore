@@ -34,3 +34,6 @@ tmp/
 temp/
 *.pid
 *.pid.lock
+
+# Expo (machine-local dev server state)
+.expo/
