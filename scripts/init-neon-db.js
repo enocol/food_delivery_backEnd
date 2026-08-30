@@ -30,7 +30,6 @@ CREATE TABLE IF NOT EXISTS restaurants (
   image_url TEXT,
   cuisine TEXT NOT NULL,
   rating NUMERIC(2, 1) NOT NULL DEFAULT 0,
-  delivery_fee NUMERIC(10, 2) NOT NULL DEFAULT 0,
   delivery_time_minutes INTEGER NOT NULL DEFAULT 30,
   is_open BOOLEAN NOT NULL DEFAULT TRUE,
   location JSONB,
@@ -39,6 +38,9 @@ CREATE TABLE IF NOT EXISTS restaurants (
 
 ALTER TABLE restaurants
 ADD COLUMN IF NOT EXISTS image_url TEXT;
+
+ALTER TABLE restaurants
+DROP COLUMN IF EXISTS delivery_fee;
 
 CREATE TABLE IF NOT EXISTS menu_items (
   id TEXT PRIMARY KEY,

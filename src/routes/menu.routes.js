@@ -132,7 +132,7 @@ router.get("/items/:itemId", async (req, res) => {
 
   const restaurantResult = await pool.query(
     `
-    SELECT id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open
+    SELECT id, name, image_url, cuisine, rating, delivery_time_minutes, is_open
     FROM restaurants
     WHERE id = $1
     `,
@@ -157,7 +157,6 @@ router.get("/items/:itemId", async (req, res) => {
           imageUrl: restaurant.image_url,
           cuisine: restaurant.cuisine,
           rating: Number(restaurant.rating),
-          deliveryFee: toCurrencyInt(restaurant.delivery_fee) ?? 0,
           deliveryTimeMinutes: restaurant.delivery_time_minutes,
           isOpen: restaurant.is_open,
         }

@@ -24,7 +24,6 @@ function mapRestaurant(row) {
     imageUrl: row.image_url,
     cuisine: row.cuisine,
     rating: Number(row.rating),
-    deliveryFee: toCurrencyInt(row.delivery_fee) ?? 0,
     deliveryTimeMinutes: row.delivery_time_minutes,
     isOpen: row.is_open,
     location,
@@ -59,17 +58,6 @@ router.post("/", async (req, res) => {
     restaurantPayload.imageUrl || restaurantPayload.image_url || null;
   const cuisine = restaurantPayload.cuisine;
   const rating = restaurantPayload.rating ?? 0;
-  const rawDeliveryFee =
-    restaurantPayload.deliveryFee ?? restaurantPayload.delivery_fee;
-  const parsedDeliveryFee = toCurrencyInt(rawDeliveryFee ?? 0);
-
-  if (rawDeliveryFee !== undefined && parsedDeliveryFee === null) {
-    return res.status(400).json({
-      message: "deliveryFee must be an integer amount",
-    });
-  }
-
-  const deliveryFee = parsedDeliveryFee ?? 0;
   const deliveryTimeMinutes =
     restaurantPayload.deliveryTimeMinutes ??
     restaurantPayload.delivery_time_minutes ??
@@ -168,17 +156,15 @@ router.post("/", async (req, res) => {
         SET
           image_url = $1,
           rating = $2,
-          delivery_fee = $3,
-          delivery_time_minutes = $4,
-          is_open = $5,
-          location = $6::jsonb
-        WHERE id = $7
-        RETURNING id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, location
+          delivery_time_minutes = $3,
+          is_open = $4,
+          location = $5::jsonb
+        WHERE id = $6
+        RETURNING id, name, image_url, cuisine, rating, delivery_time_minutes, is_open, location
         `,
         [
           imageUrl,
           rating,
-          deliveryFee,
           deliveryTimeMinutes,
           isOpen,
           location,
@@ -201,13 +187,12 @@ router.post("/", async (req, res) => {
           image_url,
           cuisine,
           rating,
-          delivery_fee,
           delivery_time_minutes,
           is_open,
           location
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, location
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id, name, image_url, cuisine, rating, delivery_time_minutes, is_open, location
         `,
         [
           restaurantId,
@@ -215,7 +200,6 @@ router.post("/", async (req, res) => {
           imageUrl,
           cuisine,
           rating,
-          deliveryFee,
           deliveryTimeMinutes,
           isOpen,
           location,
@@ -332,19 +316,6 @@ router.patch("/:restaurantId", async (req, res) => {
     updates.push(`rating = $${values.length}`);
   }
 
-  const deliveryFee =
-    restaurantPayload.deliveryFee ?? restaurantPayload.delivery_fee;
-  if (deliveryFee !== undefined) {
-    const parsedDeliveryFee = toCurrencyInt(deliveryFee);
-    if (parsedDeliveryFee === null) {
-      return res.status(400).json({
-        message: "deliveryFee must be an integer amount",
-      });
-    }
-    values.push(parsedDeliveryFee);
-    updates.push(`delivery_fee = $${values.length}`);
-  }
-
   const deliveryTimeMinutes =
     restaurantPayload.deliveryTimeMinutes ??
     restaurantPayload.delivery_time_minutes;
@@ -429,7 +400,7 @@ router.patch("/:restaurantId", async (req, res) => {
     UPDATE restaurants
     SET ${updates.join(", ")}
     WHERE id = $${values.length}
-    RETURNING id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, location
+    RETURNING id, name, image_url, cuisine, rating, delivery_time_minutes, is_open, location
     `,
     values,
   );
@@ -452,7 +423,6 @@ router.get("/with-menus", async (req, res) => {
       r.image_url,
       r.cuisine,
       r.rating,
-      r.delivery_fee,
       r.delivery_time_minutes,
       r.is_open,
       r.location,
@@ -477,7 +447,6 @@ router.get("/with-menus", async (req, res) => {
         imageUrl: row.image_url,
         cuisine: row.cuisine,
         rating: Number(row.rating),
-        deliveryFee: toCurrencyInt(row.delivery_fee) ?? 0,
         deliveryTimeMinutes: row.delivery_time_minutes,
         isOpen: row.is_open,
         location: row.location || null,
@@ -524,7 +493,7 @@ router.get("/", async (req, res) => {
 
   const result = await pool.query(
     `
-    SELECT id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, location
+    SELECT id, name, image_url, cuisine, rating, delivery_time_minutes, is_open, location
     FROM restaurants
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY name ASC
@@ -542,7 +511,7 @@ router.get("/", async (req, res) => {
 router.get("/:restaurantId", async (req, res) => {
   const restaurantResult = await pool.query(
     `
-    SELECT id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, location
+    SELECT id, name, image_url, cuisine, rating, delivery_time_minutes, is_open, location
     FROM restaurants
     WHERE id = $1
     `,
@@ -564,7 +533,7 @@ router.get("/:restaurantId", async (req, res) => {
 router.get("/:restaurantId/menu", async (req, res) => {
   const restaurantResult = await pool.query(
     `
-    SELECT id, name, image_url, cuisine, rating, delivery_fee, delivery_time_minutes, is_open, location
+    SELECT id, name, image_url, cuisine, rating, delivery_time_minutes, is_open, location
     FROM restaurants
     WHERE id = $1
     `,
