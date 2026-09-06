@@ -225,8 +225,8 @@ function normalizeDeliveryAddress(deliveryAddress) {
   };
 }
 
-async function getOrderWithDetails(orderId) {
-  const orderResult = await pool.query(
+async function getOrderWithDetails(orderId, db = pool) {
+  const orderResult = await db.query(
     `
     SELECT
       id,
@@ -250,7 +250,7 @@ async function getOrderWithDetails(orderId) {
     return null;
   }
 
-  const itemsResult = await pool.query(
+  const itemsResult = await db.query(
     `
     SELECT menu_item_id, name_snapshot, unit_price, quantity, subtotal
     FROM order_items
@@ -260,7 +260,7 @@ async function getOrderWithDetails(orderId) {
     [orderId],
   );
 
-  const statusResult = await pool.query(
+  const statusResult = await db.query(
     `
     SELECT status, timestamp
     FROM order_status_history
@@ -763,7 +763,7 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
       userId,
     ]);
 
-    const order = await getOrderWithDetails(orderId);
+    const order = await getOrderWithDetails(orderId, client);
     responseBody = {
       message: "Order created",
       order,
@@ -1196,7 +1196,7 @@ router.patch("/:orderId/status", requireRestaurantAuth, async (req, res) => {
       );
     }
 
-    order = await getOrderWithDetails(req.params.orderId);
+    order = await getOrderWithDetails(req.params.orderId, client);
     responseBody = {
       message: "Order status updated",
       order,
