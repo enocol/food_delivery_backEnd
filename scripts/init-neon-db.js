@@ -85,8 +85,16 @@ CREATE TABLE IF NOT EXISTS orders (
   payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'mtn-momo', 'orange-mobile-money')),
   status TEXT NOT NULL CHECK (status IN ('pending', 'confirmed', 'preparing', 'picked_up', 'ready_for_pickup', 'on_the_way', 'delivered', 'cancelled')),
   payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'failed', 'refunded')),
+  contact_phone TEXT,
+  delivery_notes TEXT CHECK (char_length(delivery_notes) <= 200),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE orders
+ADD COLUMN IF NOT EXISTS contact_phone TEXT;
+
+ALTER TABLE orders
+ADD COLUMN IF NOT EXISTS delivery_notes TEXT CHECK (char_length(delivery_notes) <= 200);
 
 CREATE TABLE IF NOT EXISTS order_items (
   id BIGSERIAL PRIMARY KEY,

@@ -238,6 +238,8 @@ async function getOrderWithDetails(orderId, db = pool) {
       payment_method,
       status,
       payment_status,
+      contact_phone,
+      delivery_notes,
       created_at
     FROM orders
     WHERE id = $1
@@ -288,6 +290,8 @@ async function getOrderWithDetails(orderId, db = pool) {
     paymentMethod: order.payment_method,
     status: order.status,
     paymentStatus: order.payment_status,
+    contactPhone: order.contact_phone,
+    deliveryNotes: order.delivery_notes,
     createdAt: toRfc3339Utc(order.created_at),
     statusHistory: statusResult.rows.map((entry) => ({
       status: entry.status,
@@ -305,6 +309,8 @@ async function getOrderRestaurantSummary(orderId) {
       o.delivery_fee,
       o.delivery_address,
       o.payment_method,
+      o.contact_phone,
+      o.delivery_notes,
       u.firebase_uid,
       u.name,
       u.email,
@@ -328,6 +334,8 @@ async function getOrderRestaurantSummary(orderId) {
     deliveryAddress:
       parseCoordinateValue(row.delivery_address) ?? row.delivery_address,
     paymentMethod: row.payment_method,
+    contactPhone: row.contact_phone,
+    deliveryNotes: row.delivery_notes,
     user: {
       id: row.firebase_uid,
       name: row.name,
@@ -607,14 +615,11 @@ router.post("/quote", requireAuth, async (req, res) => {
 
 router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
   console.log("Order create payload (req.body):", req.body);
-  const { deliveryAddress, paymentMethod } = req.body;
+  const { deliveryAddress, paymentMethod, contactPhone, deliveryNotes } =
+    req.body;
   const userId = req.auth.userId;
   const idempotencyKey = req.get("Idempotency-Key")?.trim() || null;
   const idempotencyScope = "orders.create";
-  const requestHash = buildIdempotencyRequestHash({
-    deliveryAddress,
-    paymentMethod,
-  });
 
   if (deliveryAddress == null || !paymentMethod) {
     return res.status(400).json({
@@ -627,6 +632,38 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
       message: `paymentMethod must be one of: ${PAYMENT_METHODS.join(", ")}`,
     });
   }
+
+  let contactPhoneValue = null;
+  if (contactPhone != null) {
+    if (typeof contactPhone !== "string" || contactPhone.trim().length === 0) {
+      return res.status(400).json({
+        message: "contactPhone must be a non-empty string",
+      });
+    }
+    contactPhoneValue = contactPhone.trim();
+  }
+
+  let deliveryNotesValue = null;
+  if (deliveryNotes != null) {
+    if (typeof deliveryNotes !== "string") {
+      return res.status(400).json({
+        message: "deliveryNotes must be a string",
+      });
+    }
+    deliveryNotesValue = deliveryNotes.trim();
+    if (deliveryNotesValue.length > 200) {
+      return res.status(400).json({
+        message: "deliveryNotes must be at most 200 characters",
+      });
+    }
+  }
+
+  const requestHash = buildIdempotencyRequestHash({
+    deliveryAddress,
+    paymentMethod,
+    contactPhone: contactPhoneValue,
+    deliveryNotes: deliveryNotesValue,
+  });
 
   const userResult = await pool.query(
     "SELECT firebase_uid, phone FROM users WHERE firebase_uid = $1",
@@ -709,9 +746,11 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
         total,
         delivery_address,
         payment_method,
+        contact_phone,
+        delivery_notes,
         status
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
       `,
       [
         orderId,
@@ -722,6 +761,8 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
         total,
         deliveryAddressForDb,
         paymentMethod,
+        contactPhoneValue,
+        deliveryNotesValue,
       ],
     );
 
@@ -820,6 +861,8 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
         deliveryAddress: deliveryAddressForPayload,
         paymentMethod,
         customerPhone,
+        contactPhone: contactPhoneValue,
+        deliveryNotes: deliveryNotesValue,
         createdAt,
       }),
     );
@@ -831,6 +874,8 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
         orderId,
         deliveryAddress: deliveryAddressForPayload,
         paymentMethod,
+        contactPhone: contactPhoneValue,
+        deliveryNotes: deliveryNotesValue,
         restaurants: [
           {
             id: restaurantId,
@@ -968,6 +1013,8 @@ router.get(
       o.total,
       o.delivery_address,
       o.payment_method,
+      o.contact_phone,
+      o.delivery_notes,
       o.created_at,
       u.firebase_uid,
       u.name,
@@ -1018,6 +1065,8 @@ router.get(
       deliveryAddress:
         parseCoordinateValue(row.delivery_address) ?? row.delivery_address,
       paymentMethod: row.payment_method,
+      contactPhone: row.contact_phone,
+      deliveryNotes: row.delivery_notes,
       createdAt: toRfc3339Utc(row.created_at),
       customer: {
         id: row.firebase_uid,
@@ -1245,6 +1294,8 @@ router.patch("/:orderId/status", requireRestaurantAuth, async (req, res) => {
           o.id          AS order_id,
           o.delivery_address,
           o.delivery_fee,
+          o.contact_phone,
+          o.delivery_notes,
           r.name        AS restaurant_name,
           r.location    AS pickup_address
         FROM orders o
@@ -1270,6 +1321,8 @@ router.patch("/:orderId/status", requireRestaurantAuth, async (req, res) => {
               deliveryAddress:
                 parseCoordinateValue(d.delivery_address) ?? d.delivery_address,
               fee: toCurrencyInt(d.delivery_fee) ?? 0,
+              contactPhone: d.contact_phone,
+              deliveryNotes: d.delivery_notes,
             }),
           );
         }
