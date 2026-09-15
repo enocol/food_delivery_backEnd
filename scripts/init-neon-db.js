@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS orders (
   payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'failed', 'refunded')),
   contact_phone TEXT,
   delivery_notes TEXT CHECK (char_length(delivery_notes) <= 200),
+  delivery_code TEXT CHECK (delivery_code ~ '^[0-9]{5}$'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -95,6 +96,9 @@ ADD COLUMN IF NOT EXISTS contact_phone TEXT;
 
 ALTER TABLE orders
 ADD COLUMN IF NOT EXISTS delivery_notes TEXT CHECK (char_length(delivery_notes) <= 200);
+
+ALTER TABLE orders
+ADD COLUMN IF NOT EXISTS delivery_code TEXT CHECK (delivery_code ~ '^[0-9]{5}$');
 
 CREATE TABLE IF NOT EXISTS order_items (
   id BIGSERIAL PRIMARY KEY,

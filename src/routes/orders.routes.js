@@ -17,6 +17,7 @@ const {
   haversineDistanceMiles,
 } = require("../utils/coordinates");
 const { withSchemaVersion } = require("../utils/eventPayload");
+const { generateDeliveryCode } = require("../utils/deliveryCode");
 const { toRfc3339Utc } = require("../utils/time");
 const { getFirebaseMessaging } = require("../config/firebaseAdmin");
 const requireAuth = require("../middleware/requireAuth");
@@ -240,6 +241,7 @@ async function getOrderWithDetails(orderId, db = pool) {
       payment_status,
       contact_phone,
       delivery_notes,
+      delivery_code,
       created_at
     FROM orders
     WHERE id = $1
@@ -292,6 +294,7 @@ async function getOrderWithDetails(orderId, db = pool) {
     paymentStatus: order.payment_status,
     contactPhone: order.contact_phone,
     deliveryNotes: order.delivery_notes,
+    deliveryCode: order.delivery_code,
     createdAt: toRfc3339Utc(order.created_at),
     statusHistory: statusResult.rows.map((entry) => ({
       status: entry.status,
@@ -693,6 +696,7 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
   } = quote;
 
   const orderId = `o_${randomUUID()}`;
+  const deliveryCode = generateDeliveryCode();
 
   const client = await pool.connect();
   let responseBody = null;
@@ -748,9 +752,10 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
         payment_method,
         contact_phone,
         delivery_notes,
+        delivery_code,
         status
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending')
       `,
       [
         orderId,
@@ -763,6 +768,7 @@ router.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
         paymentMethod,
         contactPhoneValue,
         deliveryNotesValue,
+        deliveryCode,
       ],
     );
 
