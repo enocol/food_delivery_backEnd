@@ -26,6 +26,7 @@
     "db:migrate:user-push-tokens": "node scripts/migrate-user-push-tokens.js",
     "db:migrate:orders-contact-delivery-notes": "node scripts/migrate-orders-contact-delivery-notes.js",
     "db:migrate:orders-delivery-code": "node scripts/migrate-orders-delivery-code.js",
+    "db:migrate:contact-requests": "node scripts/migrate-contact-requests-table.js",
     "db:seed:restaurant-user": "node scripts/seed-restaurant-user.js",
     "db:verify:menu-item-columns": "node scripts/verify-menu-item-columns.js",
     "db:verify": "node scripts/verify-neon-tables.js",

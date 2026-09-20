@@ -135,6 +135,24 @@ CREATE TABLE IF NOT EXISTS likes (
   PRIMARY KEY (firebase_uid, restaurant_id)
 );
 
+CREATE TABLE IF NOT EXISTS contact_requests (
+  id TEXT PRIMARY KEY,
+  full_name TEXT NOT NULL,
+  company TEXT,
+  email TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  need_type TEXT NOT NULL CHECK (need_type IN (
+    'New Product Build',
+    'Existing System Upgrade',
+    'Mobile Application',
+    'Payment/Mobile Money Integration',
+    'Support and Maintenance',
+    'Something Else'
+  )),
+  project_description TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_menu_items_restaurant_id ON menu_items(restaurant_id);
 CREATE INDEX IF NOT EXISTS idx_cart_items_firebase_uid ON cart_items(firebase_uid);
 CREATE INDEX IF NOT EXISTS idx_orders_firebase_uid ON orders(firebase_uid);
@@ -142,6 +160,7 @@ CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_status_history_order_id ON order_status_history(order_id);
 CREATE INDEX IF NOT EXISTS idx_deliveries_order_id ON deliveries(order_id);
 CREATE INDEX IF NOT EXISTS idx_likes_restaurant_id ON likes(restaurant_id);
+CREATE INDEX IF NOT EXISTS idx_contact_requests_created_at ON contact_requests(created_at DESC);
 
 COMMIT;
 `;
