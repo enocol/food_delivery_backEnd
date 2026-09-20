@@ -12,12 +12,12 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function serializeContactRequest(row) {
   return {
     id: row.id,
-    fullName: row.full_name,
+    name: row.full_name,
     company: row.company,
     email: row.email,
     phone: row.phone,
-    needType: row.need_type,
-    projectDescription: row.project_description,
+    topic: row.need_type,
+    message: row.project_description,
     createdAt: toRfc3339Utc(row.created_at),
   };
 }
@@ -25,11 +25,10 @@ function serializeContactRequest(row) {
 // POST /api/contact-requests
 // Public endpoint the contact/quote-request form submits to.
 router.post("/", async (req, res) => {
-  const { fullName, company, email, phone, needType, projectDescription } =
-    req.body || {};
+  const { name, company, email, phone, topic, message } = req.body || {};
 
-  if (typeof fullName !== "string" || fullName.trim().length === 0) {
-    return res.status(400).json({ message: "fullName is required" });
+  if (typeof name !== "string" || name.trim().length === 0) {
+    return res.status(400).json({ message: "name is required" });
   }
 
   if (typeof email !== "string" || !EMAIL_PATTERN.test(email.trim())) {
@@ -40,17 +39,14 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ message: "phone is required" });
   }
 
-  if (!CONTACT_REQUEST_NEEDS.includes(needType)) {
+  if (!CONTACT_REQUEST_NEEDS.includes(topic)) {
     return res.status(400).json({
-      message: `needType must be one of: ${CONTACT_REQUEST_NEEDS.join(", ")}`,
+      message: `topic must be one of: ${CONTACT_REQUEST_NEEDS.join(", ")}`,
     });
   }
 
-  if (
-    typeof projectDescription !== "string" ||
-    projectDescription.trim().length === 0
-  ) {
-    return res.status(400).json({ message: "projectDescription is required" });
+  if (typeof message !== "string" || message.trim().length === 0) {
+    return res.status(400).json({ message: "message is required" });
   }
 
   let companyValue = null;
@@ -79,12 +75,12 @@ router.post("/", async (req, res) => {
     `,
     [
       id,
-      fullName.trim(),
+      name.trim(),
       companyValue,
       email.trim(),
       phone.trim(),
-      needType,
-      projectDescription.trim(),
+      topic,
+      message.trim(),
     ],
   );
 
