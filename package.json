@@ -24,6 +24,7 @@
     "db:migrate:deliveries-current-location": "node scripts/migrate-deliveries-current-location.js",
     "db:migrate:restaurant-users": "node scripts/migrate-restaurant-users.js",
     "db:migrate:user-push-tokens": "node scripts/migrate-user-push-tokens.js",
+    "db:migrate:users-deleted-at": "node scripts/migrate-users-deleted-at.js",
     "db:migrate:orders-contact-delivery-notes": "node scripts/migrate-orders-contact-delivery-notes.js",
     "db:migrate:orders-delivery-code": "node scripts/migrate-orders-delivery-code.js",
     "db:migrate:contact-requests": "node scripts/migrate-contact-requests-table.js",

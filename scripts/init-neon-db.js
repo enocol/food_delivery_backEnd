@@ -21,8 +21,12 @@ CREATE TABLE IF NOT EXISTS users (
   phone TEXT,
   is_admin BOOLEAN NOT NULL DEFAULT FALSE,
   auth_provider TEXT NOT NULL DEFAULT 'firebase' CHECK (auth_provider IN ('local', 'emailjs', 'firebase')),
+  deleted_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS restaurants (
   id TEXT PRIMARY KEY,

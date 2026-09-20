@@ -10,6 +10,20 @@ async function upsertUserFromToken(decodedToken) {
 
   const client = await pool.connect();
   try {
+    // A closed/anonymized account (see DELETE /api/auth/account) must stay
+    // closed even if the client still holds an unexpired Firebase ID token
+    // — otherwise this upsert would happily restore the real name/email
+    // from the token's claims below, undoing the anonymization.
+    const deletedCheck = await client.query(
+      "SELECT deleted_at FROM users WHERE firebase_uid = $1 LIMIT 1",
+      [firebaseUid],
+    );
+    if (deletedCheck.rowCount > 0 && deletedCheck.rows[0].deleted_at) {
+      const error = new Error("This account has been closed");
+      error.code = "ACCOUNT_DELETED";
+      throw error;
+    }
+
     await client.query("BEGIN");
 
     if (hasEmailClaim) {
@@ -110,6 +124,12 @@ async function requireAuth(req, res, next) {
   try {
     user = await upsertUserFromToken(decodedToken);
   } catch (error) {
+    if (error.code === "ACCOUNT_DELETED") {
+      return res.status(403).json({
+        message: "This account has been closed.",
+      });
+    }
+
     if (
       error.message &&
       error.message.includes("User reconciliation conflict")
