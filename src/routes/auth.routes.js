@@ -241,6 +241,13 @@ router.delete("/account", requireAuth, async (req, res, next) => {
     return res.status(502).json({
       message:
         "Account data was closed, but the Firebase login could not be removed. Contact support to finish closing this account.",
+      outcome,
+      // "deleted": the Neon row is gone, so a retry re-runs cleanly.
+      // "anonymized": the row is marked deleted_at, so requireAuth will
+      // reject any further request from this account (including a
+      // retry of this same call) with 403 — only support/an admin can
+      // finish removing the Firebase account from here.
+      retryable: outcome === "deleted",
     });
   }
 
@@ -249,6 +256,7 @@ router.delete("/account", requireAuth, async (req, res, next) => {
       outcome === "anonymized"
         ? "Account closed. Your order history is retained but no longer linked to your personal details."
         : "Account deleted",
+    outcome,
   });
 });
 
