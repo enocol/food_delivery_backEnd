@@ -42,7 +42,7 @@ router.get("/", requireAuth, async (req, res, next) => {
   try {
     const result = await pool.query(
       `
-      SELECT d.firebase_uid, u.name, d.is_online, d.status, d.updated_at
+      SELECT d.firebase_uid, u.name, d.phone, d.current_location, d.is_online, d.status, d.updated_at
       FROM drivers d
       LEFT JOIN users u ON u.firebase_uid = d.firebase_uid
       WHERE d.firebase_uid IS NOT NULL
@@ -55,6 +55,9 @@ router.get("/", requireAuth, async (req, res, next) => {
     const drivers = result.rows.map((row) => ({
       firebaseUid: row.firebase_uid,
       name: row.name,
+      phone: row.phone,
+      currentLocation:
+        parseCoordinateValue(row.current_location) ?? row.current_location,
       isOnline: Boolean(row.is_online),
       onlineStatus: row.status,
       availability: row.is_online ? "available" : "not available",
