@@ -289,7 +289,8 @@ function setupSocket(httpServer) {
             `UPDATE drivers
              SET is_online = TRUE, status = 'Online',
                  current_location = COALESCE($2, current_location),
-                 socket_id = $3
+                 socket_id = $3,
+                 updated_at = NOW()
              WHERE firebase_uid = $1`,
             [socket.firebaseUid, location, socket.id],
           );
@@ -324,7 +325,7 @@ function setupSocket(httpServer) {
         );
         try {
           await pool.query(
-            `UPDATE drivers SET current_location = $2 WHERE firebase_uid = $1`,
+            `UPDATE drivers SET current_location = $2, updated_at = NOW() WHERE firebase_uid = $1`,
             [socket.firebaseUid, location],
           );
         } catch (err) {
@@ -339,7 +340,7 @@ function setupSocket(httpServer) {
       socket.on("go_offline", async () => {
         try {
           await pool.query(
-            `UPDATE drivers SET is_online = FALSE, status = 'Offline'
+            `UPDATE drivers SET is_online = FALSE, status = 'Offline', updated_at = NOW()
              WHERE firebase_uid = $1`,
             [socket.firebaseUid],
           );
@@ -363,7 +364,7 @@ function setupSocket(httpServer) {
         );
         try {
           await pool.query(
-            `UPDATE drivers SET is_online = FALSE, status = 'Offline', socket_id = NULL
+            `UPDATE drivers SET is_online = FALSE, status = 'Offline', socket_id = NULL, updated_at = NOW()
              WHERE firebase_uid = $1`,
             [socket.firebaseUid],
           );

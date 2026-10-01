@@ -10,6 +10,7 @@ const {
   toCoordinateStorageValue,
 } = require("../utils/coordinates");
 const { withSchemaVersion } = require("../utils/eventPayload");
+const { toRfc3339Utc } = require("../utils/time");
 
 const router = express.Router();
 
@@ -18,6 +19,53 @@ const DRIVER_STATUS_TRANSITIONS = {
   picked_up: ["on_the_way"],
   on_the_way: ["delivered"],
 };
+
+// GET /api/drivers?online=true|false
+// Admin-only. Lists drivers, optionally filtered by online status.
+router.get("/", requireAuth, async (req, res, next) => {
+  if (!req.auth.user.is_admin) {
+    return res.status(403).json({ message: "Forbidden: admin access required" });
+  }
+
+  const { online } = req.query;
+  let onlineFilter = null;
+  if (online !== undefined) {
+    if (online === "true") {
+      onlineFilter = true;
+    } else if (online === "false") {
+      onlineFilter = false;
+    } else {
+      return res.status(400).json({ message: "online must be 'true' or 'false'" });
+    }
+  }
+
+  try {
+    const result = await pool.query(
+      `
+      SELECT d.firebase_uid, u.name, d.is_online, d.status, d.updated_at
+      FROM drivers d
+      LEFT JOIN users u ON u.firebase_uid = d.firebase_uid
+      WHERE d.firebase_uid IS NOT NULL
+        AND ($1::boolean IS NULL OR d.is_online = $1)
+      ORDER BY d.is_online DESC, u.name ASC NULLS LAST
+      `,
+      [onlineFilter],
+    );
+
+    const drivers = result.rows.map((row) => ({
+      firebaseUid: row.firebase_uid,
+      name: row.name,
+      isOnline: Boolean(row.is_online),
+      onlineStatus: row.status,
+      availability: row.is_online ? "available" : "not available",
+      updatedAt: toRfc3339Utc(row.updated_at),
+    }));
+
+    return res.status(200).json(drivers);
+  } catch (error) {
+    return next(error);
+  }
+});
 
 // POST /api/drivers/session
 // Called when a driver logs in. Upserts the driver row:
@@ -35,13 +83,14 @@ router.post("/session", requireAuth, async (req, res, next) => {
   try {
     const result = await pool.query(
       `
-      INSERT INTO drivers (firebase_uid, phone, current_location, status, is_online)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO drivers (firebase_uid, phone, current_location, status, is_online, updated_at)
+      VALUES ($1, $2, $3, $4, $5, NOW())
       ON CONFLICT (firebase_uid) DO UPDATE SET
         phone            = COALESCE(EXCLUDED.phone,            drivers.phone),
         current_location = COALESCE(EXCLUDED.current_location, drivers.current_location),
         status           = COALESCE(EXCLUDED.status,           drivers.status),
-        is_online        = COALESCE(EXCLUDED.is_online,        drivers.is_online)
+        is_online        = COALESCE(EXCLUDED.is_online,        drivers.is_online),
+        updated_at       = NOW()
       RETURNING id, firebase_uid, phone, current_location, status, is_online
       `,
       [
