@@ -61,7 +61,7 @@ router.get("/", requireAuth, async (req, res, next) => {
       updatedAt: toRfc3339Utc(row.updated_at),
     }));
 
-    return res.status(200).json(drivers);
+    return res.status(200).json({ count: drivers.length, drivers });
   } catch (error) {
     return next(error);
   }
