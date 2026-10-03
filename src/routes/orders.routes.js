@@ -53,6 +53,13 @@ function getOrderStatusNotificationContent(status, restaurantName) {
     };
   }
 
+  if (status === "ready_for_pickup") {
+    return {
+      title: "Order ready for pickup",
+      body: `Your order is ready and waiting for a driver to pick it up from ${restaurantLabel}.`,
+    };
+  }
+
   return {
     title: "Order confirmed",
     body: `Your order has been confirmed by ${restaurantLabel}.`,
@@ -1336,7 +1343,10 @@ router.patch("/:orderId/status", requireRestaurantAuth, async (req, res) => {
     }
   }
 
-  if (["confirmed", "cancelled"].includes(status) && customerUid) {
+  if (
+    ["confirmed", "cancelled", "ready_for_pickup"].includes(status) &&
+    customerUid
+  ) {
     try {
       const restaurantResult = await pool.query(
         "SELECT name FROM restaurants WHERE id = $1",
