@@ -155,7 +155,10 @@ function setupSocket(httpServer) {
 
     const activeDelivery =
       activeDeliveryResult.rowCount > 0 ? activeDeliveryResult.rows[0] : null;
-    const availability = driver.is_online ? "available" : "not available";
+    const availability =
+      driver.is_online && driver.status === "Online"
+        ? "available"
+        : "not available";
 
     const driverCoordinates = parseCoordinateValue(driver.current_location);
     const restaurantCoordinates = activeDelivery

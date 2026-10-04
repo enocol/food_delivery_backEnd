@@ -60,7 +60,10 @@ router.get("/", requireAuth, async (req, res, next) => {
         parseCoordinateValue(row.current_location) ?? row.current_location,
       isOnline: Boolean(row.is_online),
       onlineStatus: row.status,
-      availability: row.is_online ? "available" : "not available",
+      availability:
+        row.is_online && row.status === "Online"
+          ? "available"
+          : "not available",
       updatedAt: toRfc3339Utc(row.updated_at),
     }));
 
@@ -120,7 +123,8 @@ router.post("/session", requireAuth, async (req, res, next) => {
 });
 
 // POST /api/drivers/deliveries/:orderId/accept
-// Assigns the authenticated driver to a delivery if unassigned.
+// Confirms a delivery that was specifically offered to the authenticated
+// driver via POST /api/orders/:orderId/assign.
 router.post(
   "/deliveries/:orderId/accept",
   requireAuth,
@@ -224,7 +228,7 @@ router.post(
 
       const deliveryResult = await client.query(
         `
-      SELECT order_id, assigned_driver_firebase_uid
+      SELECT order_id, status, offered_driver_firebase_uid
       FROM deliveries
       WHERE order_id = $1
       FOR UPDATE
@@ -239,12 +243,22 @@ router.post(
         });
       }
 
-      const assignedDriverUid =
-        deliveryResult.rows[0].assigned_driver_firebase_uid;
-      if (assignedDriverUid && assignedDriverUid !== firebase_uid) {
+      const delivery = deliveryResult.rows[0];
+
+      if (delivery.status === "accepted") {
         await client.query("ROLLBACK");
         return res.status(409).json({
-          message: "Delivery is already assigned to another driver",
+          message: "Delivery has already been accepted",
+        });
+      }
+
+      if (
+        delivery.status !== "offered" ||
+        delivery.offered_driver_firebase_uid !== firebase_uid
+      ) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({
+          message: "This delivery has not been offered to you",
         });
       }
 
@@ -252,6 +266,7 @@ router.post(
         `
         UPDATE deliveries
         SET
+          status = 'accepted',
           assigned_driver_firebase_uid = $2,
           rider_phone = COALESCE($3, rider_phone),
           current_location = COALESCE($4, current_location),
@@ -266,6 +281,22 @@ router.post(
           driverResult.rows[0].current_location,
           seededEtaMinutes,
         ],
+      );
+
+      await client.query(
+        `
+        UPDATE delivery_offers
+        SET responded_at = NOW(), response = 'accepted'
+        WHERE order_id = $1
+          AND driver_firebase_uid = $2
+          AND responded_at IS NULL
+        `,
+        [orderId, firebase_uid],
+      );
+
+      await client.query(
+        `UPDATE drivers SET status = 'On Delivery' WHERE firebase_uid = $1`,
+        [firebase_uid],
       );
 
       const successResponse = {
@@ -331,6 +362,179 @@ router.post(
       }
 
       await client.query("COMMIT");
+
+      const io = req.app.get("io");
+      if (io) {
+        io.to("admin").emit(
+          "delivery_accepted",
+          withSchemaVersion({
+            orderId,
+            driverFirebaseUid: firebase_uid,
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      }
+
+      return res.status(200).json(successResponse);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      next(error);
+    } finally {
+      client.release();
+    }
+  },
+);
+
+// POST /api/drivers/deliveries/:orderId/decline
+// Declines a delivery that was offered to the authenticated driver. The
+// delivery goes back to "pending" for an admin to reassign via
+// POST /api/orders/:orderId/assign.
+router.post(
+  "/deliveries/:orderId/decline",
+  requireAuth,
+  async (req, res, next) => {
+    const firebase_uid = req.auth.user.firebase_uid;
+    const { orderId } = req.params;
+    const idempotencyKey = req.get("Idempotency-Key")?.trim() || null;
+    const idempotencyScope = "drivers.deliveries.decline";
+    const requestHash = buildIdempotencyRequestHash({
+      orderId,
+      body: req.body || {},
+    });
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      if (idempotencyKey) {
+        await ensureIdempotencyTable(client);
+
+        const existingRecordResult = await client.query(
+          `
+          SELECT request_hash, response_status, response_body
+          FROM api_idempotency_records
+          WHERE idempotency_key = $1
+            AND scope = $2
+            AND actor_id = $3
+          LIMIT 1
+          `,
+          [idempotencyKey, idempotencyScope, firebase_uid],
+        );
+
+        if (existingRecordResult.rowCount > 0) {
+          const existingRecord = existingRecordResult.rows[0];
+
+          if (existingRecord.request_hash !== requestHash) {
+            await client.query("ROLLBACK");
+            return res.status(409).json({
+              message:
+                "Idempotency-Key was already used with a different request payload",
+            });
+          }
+
+          await client.query("ROLLBACK");
+          return res
+            .status(existingRecord.response_status)
+            .json(existingRecord.response_body);
+        }
+      }
+
+      const deliveryResult = await client.query(
+        `
+        SELECT order_id, status, offered_driver_firebase_uid
+        FROM deliveries
+        WHERE order_id = $1
+        FOR UPDATE
+        `,
+        [orderId],
+      );
+
+      if (deliveryResult.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ message: "Delivery not found" });
+      }
+
+      const delivery = deliveryResult.rows[0];
+
+      if (
+        delivery.status !== "offered" ||
+        delivery.offered_driver_firebase_uid !== firebase_uid
+      ) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({
+          message: "This delivery has not been offered to you",
+        });
+      }
+
+      await client.query(
+        `
+        UPDATE deliveries
+        SET
+          status = 'pending',
+          offered_driver_firebase_uid = NULL,
+          offered_at = NULL,
+          updated_at = NOW()
+        WHERE order_id = $1
+        `,
+        [orderId],
+      );
+
+      await client.query(
+        `
+        UPDATE delivery_offers
+        SET responded_at = NOW(), response = 'declined'
+        WHERE order_id = $1
+          AND driver_firebase_uid = $2
+          AND responded_at IS NULL
+        `,
+        [orderId, firebase_uid],
+      );
+
+      await client.query(
+        `UPDATE drivers SET status = 'Online' WHERE firebase_uid = $1`,
+        [firebase_uid],
+      );
+
+      const successResponse = { message: "Delivery declined", orderId };
+
+      if (idempotencyKey) {
+        await client.query(
+          `
+          INSERT INTO api_idempotency_records (
+            idempotency_key,
+            scope,
+            actor_id,
+            request_hash,
+            response_status,
+            response_body
+          )
+          VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+          `,
+          [
+            idempotencyKey,
+            idempotencyScope,
+            firebase_uid,
+            requestHash,
+            200,
+            JSON.stringify(successResponse),
+          ],
+        );
+      }
+
+      await client.query("COMMIT");
+
+      const io = req.app.get("io");
+      if (io) {
+        io.to("admin").emit(
+          "delivery_declined",
+          withSchemaVersion({
+            orderId,
+            driverFirebaseUid: firebase_uid,
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      }
+
       return res.status(200).json(successResponse);
     } catch (error) {
       await client.query("ROLLBACK");
@@ -514,6 +718,13 @@ router.patch(
       `,
         [orderId],
       );
+
+      if (status === "delivered") {
+        await client.query(
+          `UPDATE drivers SET status = 'Online' WHERE firebase_uid = $1`,
+          [firebase_uid],
+        );
+      }
 
       customerUid = orderRow.firebase_uid;
       responseBody = {

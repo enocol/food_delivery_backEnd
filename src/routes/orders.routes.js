@@ -66,12 +66,7 @@ function getOrderStatusNotificationContent(status, restaurantName) {
   };
 }
 
-async function sendOrderStatusPush(
-  orderId,
-  customerUid,
-  status,
-  restaurantName,
-) {
+async function sendPushNotification(firebaseUid, notification, data) {
   const tokensResult = await pool.query(
     `
     SELECT fcm_token
@@ -79,7 +74,7 @@ async function sendOrderStatusPush(
     WHERE firebase_uid = $1
       AND is_active = TRUE
     `,
-    [customerUid],
+    [firebaseUid],
   );
 
   const tokens = tokensResult.rows
@@ -101,11 +96,6 @@ async function sendOrderStatusPush(
     }
   }
 
-  const notification = getOrderStatusNotificationContent(
-    status,
-    restaurantName,
-  );
-  const updatedAt = new Date().toISOString();
   const inactiveTokens = [];
   const invalidTokenCodes = new Set([
     "messaging/invalid-registration-token",
@@ -120,12 +110,7 @@ async function sendOrderStatusPush(
           title: notification.title,
           body: notification.body,
         },
-        data: {
-          type: "order_status_updated",
-          orderId: String(orderId),
-          status: String(status),
-          updatedAt,
-        },
+        data,
       });
 
       response.responses.forEach((result, index) => {
@@ -135,7 +120,7 @@ async function sendOrderStatusPush(
       });
     } catch (error) {
       console.error(
-        `FCM send failed for order ${orderId} and user ${customerUid}:`,
+        `FCM send failed for user ${firebaseUid}:`,
         error.message,
       );
     }
@@ -158,19 +143,14 @@ async function sendOrderStatusPush(
               title: notification.title,
               body: notification.body,
               sound: "default",
-              data: {
-                type: "order_status_updated",
-                orderId: String(orderId),
-                status: String(status),
-                updatedAt,
-              },
+              data,
             })),
           ),
         });
 
         if (!expoResponse.ok) {
           console.error(
-            `Expo push send failed for order ${orderId}: HTTP ${expoResponse.status}`,
+            `Expo push send failed for user ${firebaseUid}: HTTP ${expoResponse.status}`,
           );
           continue;
         }
@@ -189,7 +169,7 @@ async function sendOrderStatusPush(
         });
       } catch (error) {
         console.error(
-          `Expo push send failed for order ${orderId} and user ${customerUid}:`,
+          `Expo push send failed for user ${firebaseUid}:`,
           error.message,
         );
       }
@@ -207,6 +187,38 @@ async function sendOrderStatusPush(
       [uniqueInactiveTokens],
     );
   }
+}
+
+async function sendOrderStatusPush(
+  orderId,
+  customerUid,
+  status,
+  restaurantName,
+) {
+  const notification = getOrderStatusNotificationContent(
+    status,
+    restaurantName,
+  );
+
+  await sendPushNotification(customerUid, notification, {
+    type: "order_status_updated",
+    orderId: String(orderId),
+    status: String(status),
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+async function sendDeliveryOfferPush(orderId, driverFirebaseUid, restaurantName) {
+  const notification = {
+    title: "New delivery offer",
+    body: `You've been offered a delivery from ${restaurantName || "a restaurant"}.`,
+  };
+
+  await sendPushNotification(driverFirebaseUid, notification, {
+    type: "delivery_offered",
+    orderId: String(orderId),
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 function normalizeDeliveryAddress(deliveryAddress) {
@@ -1296,51 +1308,18 @@ router.patch("/:orderId/status", requireRestaurantAuth, async (req, res) => {
     client.release();
   }
 
-  // Keep Socket.IO only for driver dispatch notifications.
+  // Dispatch is admin-mediated now (see POST /:orderId/assign) — no more
+  // broadcasting to every online driver. Just let the admin dashboard know
+  // a delivery is waiting to be assigned.
   const io = req.app.get("io");
-  if (io) {
-    // When order is ready for pickup, notify all available drivers
-    if (status === "ready_for_pickup") {
-      const deliveryInfoResult = await pool.query(
-        `
-        SELECT
-          o.id          AS order_id,
-          o.delivery_address,
-          o.delivery_fee,
-          o.contact_phone,
-          o.delivery_notes,
-          r.name        AS restaurant_name,
-          r.location    AS pickup_address
-        FROM orders o
-        JOIN restaurants r ON r.id = o.restaurant_id
-        WHERE o.id = $1
-        `,
-        [req.params.orderId],
-      );
-
-      if (deliveryInfoResult.rowCount > 0) {
-        const d = deliveryInfoResult.rows[0];
-        const onlineDriversResult = await pool.query(
-          `SELECT firebase_uid FROM drivers WHERE is_online = TRUE`,
-        );
-        for (const driver of onlineDriversResult.rows) {
-          io.to(`driver:${driver.firebase_uid}`).emit(
-            "new_delivery_available",
-            withSchemaVersion({
-              orderId: d.order_id,
-              restaurantName: d.restaurant_name,
-              pickupAddress:
-                parseCoordinateValue(d.pickup_address) ?? d.pickup_address,
-              deliveryAddress:
-                parseCoordinateValue(d.delivery_address) ?? d.delivery_address,
-              fee: toCurrencyInt(d.delivery_fee) ?? 0,
-              contactPhone: d.contact_phone,
-              deliveryNotes: d.delivery_notes,
-            }),
-          );
-        }
-      }
-    }
+  if (io && status === "ready_for_pickup") {
+    io.to("admin").emit(
+      "delivery_needs_driver",
+      withSchemaVersion({
+        orderId: req.params.orderId,
+        timestamp: new Date().toISOString(),
+      }),
+    );
   }
 
   if (
@@ -1364,6 +1343,298 @@ router.patch("/:orderId/status", requireRestaurantAuth, async (req, res) => {
       console.error(
         `Failed to send order status push for order ${req.params.orderId} (status: ${status}):`,
         error.message,
+      );
+    }
+  }
+
+  return res.status(200).json(responseBody);
+});
+
+// POST /api/orders/:orderId/assign
+// Admin-only. Offers a delivery to a specific driver — covers both first
+// assignment (delivery is still "pending") and reassignment (overriding an
+// existing offer or acceptance).
+router.post("/:orderId/assign", requireAuth, async (req, res, next) => {
+  if (!req.auth.user.is_admin) {
+    return res
+      .status(403)
+      .json({ message: "Forbidden: admin access required" });
+  }
+
+  const { orderId } = req.params;
+  const { driverFirebaseUid } = req.body || {};
+
+  if (
+    typeof driverFirebaseUid !== "string" ||
+    driverFirebaseUid.trim().length === 0
+  ) {
+    return res.status(400).json({ message: "driverFirebaseUid is required" });
+  }
+
+  const idempotencyKey = req.get("Idempotency-Key")?.trim() || null;
+  const idempotencyScope = "orders.assign";
+  const actorId = req.auth.userId;
+  const requestHash = buildIdempotencyRequestHash({
+    orderId,
+    driverFirebaseUid,
+  });
+
+  const client = await pool.connect();
+  let responseBody = null;
+  let previousOfferCancelled = false;
+
+  try {
+    await client.query("BEGIN");
+
+    if (idempotencyKey) {
+      await ensureIdempotencyTable(client);
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        `${idempotencyScope}:${actorId}:${idempotencyKey}`,
+      ]);
+
+      const existingRecordResult = await client.query(
+        `
+        SELECT request_hash, response_status, response_body
+        FROM api_idempotency_records
+        WHERE idempotency_key = $1
+          AND scope = $2
+          AND actor_id = $3
+        LIMIT 1
+        `,
+        [idempotencyKey, idempotencyScope, actorId],
+      );
+
+      if (existingRecordResult.rowCount > 0) {
+        const existingRecord = existingRecordResult.rows[0];
+        if (existingRecord.request_hash !== requestHash) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({
+            message:
+              "Idempotency-Key was already used with a different request payload",
+          });
+        }
+
+        await client.query("ROLLBACK");
+        return res
+          .status(existingRecord.response_status)
+          .json(existingRecord.response_body);
+      }
+    }
+
+    const orderResult = await client.query(
+      `
+      SELECT id, status
+      FROM orders
+      WHERE id = $1
+      FOR UPDATE
+      `,
+      [orderId],
+    );
+
+    if (orderResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    if (
+      !["ready_for_pickup", "picked_up", "on_the_way"].includes(
+        orderResult.rows[0].status,
+      )
+    ) {
+      await client.query("ROLLBACK");
+      return res
+        .status(409)
+        .json({ message: "Order is not in a dispatchable state" });
+    }
+
+    const driverResult = await client.query(
+      `
+      SELECT firebase_uid
+      FROM drivers
+      WHERE firebase_uid = $1
+      `,
+      [driverFirebaseUid],
+    );
+
+    if (driverResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Driver not found" });
+    }
+
+    const deliveryResult = await client.query(
+      `
+      SELECT status, offered_driver_firebase_uid, assigned_driver_firebase_uid
+      FROM deliveries
+      WHERE order_id = $1
+      FOR UPDATE
+      `,
+      [orderId],
+    );
+
+    if (deliveryResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res
+        .status(409)
+        .json({ message: "Order is not ready for driver assignment yet" });
+    }
+
+    const delivery = deliveryResult.rows[0];
+
+    if (delivery.status === "offered" && delivery.offered_driver_firebase_uid) {
+      await client.query(
+        `
+        UPDATE delivery_offers
+        SET responded_at = NOW(), response = 'cancelled'
+        WHERE order_id = $1
+          AND driver_firebase_uid = $2
+          AND responded_at IS NULL
+        `,
+        [orderId, delivery.offered_driver_firebase_uid],
+      );
+
+      if (delivery.offered_driver_firebase_uid !== driverFirebaseUid) {
+        await client.query(
+          `UPDATE drivers SET status = 'Online' WHERE firebase_uid = $1`,
+          [delivery.offered_driver_firebase_uid],
+        );
+        previousOfferCancelled = true;
+      }
+    } else if (
+      delivery.status === "accepted" &&
+      delivery.assigned_driver_firebase_uid &&
+      delivery.assigned_driver_firebase_uid !== driverFirebaseUid
+    ) {
+      await client.query(
+        `UPDATE drivers SET status = 'Online' WHERE firebase_uid = $1`,
+        [delivery.assigned_driver_firebase_uid],
+      );
+      previousOfferCancelled = true;
+    }
+
+    await client.query(
+      `
+      UPDATE deliveries
+      SET
+        status = 'offered',
+        offered_driver_firebase_uid = $2,
+        offered_at = NOW(),
+        assigned_driver_firebase_uid = NULL,
+        updated_at = NOW()
+      WHERE order_id = $1
+      `,
+      [orderId, driverFirebaseUid],
+    );
+
+    await client.query(
+      `
+      INSERT INTO delivery_offers (order_id, driver_firebase_uid)
+      VALUES ($1, $2)
+      `,
+      [orderId, driverFirebaseUid],
+    );
+
+    await client.query(
+      `UPDATE drivers SET status = 'Offered' WHERE firebase_uid = $1`,
+      [driverFirebaseUid],
+    );
+
+    responseBody = {
+      message: "Delivery offered to driver",
+      orderId,
+      offeredDriverFirebaseUid: driverFirebaseUid,
+      previousOfferCancelled,
+    };
+
+    if (idempotencyKey) {
+      await client.query(
+        `
+        INSERT INTO api_idempotency_records (
+          idempotency_key,
+          scope,
+          actor_id,
+          request_hash,
+          response_status,
+          response_body
+        )
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+        `,
+        [
+          idempotencyKey,
+          idempotencyScope,
+          actorId,
+          requestHash,
+          200,
+          JSON.stringify(responseBody),
+        ],
+      );
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    return next(error);
+  } finally {
+    client.release();
+  }
+
+  const io = req.app.get("io");
+  if (io) {
+    const infoResult = await pool.query(
+      `
+      SELECT
+        o.id AS order_id,
+        o.delivery_address,
+        o.delivery_fee,
+        o.contact_phone,
+        o.delivery_notes,
+        r.name AS restaurant_name,
+        r.location AS pickup_address
+      FROM orders o
+      JOIN restaurants r ON r.id = o.restaurant_id
+      WHERE o.id = $1
+      `,
+      [orderId],
+    );
+
+    if (infoResult.rowCount > 0) {
+      const d = infoResult.rows[0];
+
+      io.to(`driver:${driverFirebaseUid}`).emit(
+        "delivery_offered",
+        withSchemaVersion({
+          orderId: d.order_id,
+          restaurantName: d.restaurant_name,
+          pickupAddress:
+            parseCoordinateValue(d.pickup_address) ?? d.pickup_address,
+          deliveryAddress:
+            parseCoordinateValue(d.delivery_address) ?? d.delivery_address,
+          fee: toCurrencyInt(d.delivery_fee) ?? 0,
+          contactPhone: d.contact_phone,
+          deliveryNotes: d.delivery_notes,
+        }),
+      );
+
+      try {
+        await sendDeliveryOfferPush(
+          orderId,
+          driverFirebaseUid,
+          d.restaurant_name,
+        );
+      } catch (error) {
+        console.error(
+          `Failed to send delivery offer push for order ${orderId}:`,
+          error.message,
+        );
+      }
+
+      io.to("admin").emit(
+        "delivery_assigned",
+        withSchemaVersion({
+          orderId,
+          driverFirebaseUid,
+          previousOfferCancelled,
+          timestamp: new Date().toISOString(),
+        }),
       );
     }
   }
