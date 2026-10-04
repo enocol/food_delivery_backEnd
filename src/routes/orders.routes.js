@@ -1109,17 +1109,24 @@ router.get(
   },
 );
 
-// GET /api/orders/needs-driver
+// GET /api/orders/needs-driver?includeAccepted=true
 // Admin-only. Orders whose delivery hasn't been accepted by a driver yet —
 // either nobody has been offered it ("pending") or someone has but hasn't
 // responded ("offered"). This is the dispatcher's queue for POST
 // /:orderId/assign.
+//
+// With includeAccepted=true, also includes deliveries that have been
+// accepted but whose order is still ready_for_pickup (i.e. the driver
+// hasn't picked it up yet) — once the order moves to picked_up/on_the_way
+// it drops out regardless of this flag.
 router.get("/needs-driver", requireAuth, async (req, res, next) => {
   if (!req.auth.user.is_admin) {
     return res
       .status(403)
       .json({ message: "Forbidden: admin access required" });
   }
+
+  const includeAccepted = req.query.includeAccepted === "true";
 
   try {
     const result = await pool.query(
@@ -1134,18 +1141,24 @@ router.get("/needs-driver", requireAuth, async (req, res, next) => {
         d.status AS delivery_status,
         d.offered_driver_firebase_uid,
         d.offered_at,
+        d.assigned_driver_firebase_uid,
+        d.updated_at AS accepted_at,
         d.created_at AS ready_for_pickup_at,
         r.id AS restaurant_id,
         r.name AS restaurant_name,
         r.location AS restaurant_location,
-        u.name AS offered_driver_name
+        ou.name AS offered_driver_name,
+        au.name AS assigned_driver_name
       FROM deliveries d
       JOIN orders o ON o.id = d.order_id
       JOIN restaurants r ON r.id = o.restaurant_id
-      LEFT JOIN users u ON u.firebase_uid = d.offered_driver_firebase_uid
+      LEFT JOIN users ou ON ou.firebase_uid = d.offered_driver_firebase_uid
+      LEFT JOIN users au ON au.firebase_uid = d.assigned_driver_firebase_uid
       WHERE d.status IN ('pending', 'offered')
+         OR ($1 AND d.status = 'accepted' AND o.status = 'ready_for_pickup')
       ORDER BY d.created_at ASC
       `,
+      [includeAccepted],
     );
 
     const orders = result.rows.map((row) => ({
@@ -1170,6 +1183,13 @@ router.get("/needs-driver", requireAuth, async (req, res, next) => {
             firebaseUid: row.offered_driver_firebase_uid,
             name: row.offered_driver_name,
             offeredAt: toRfc3339Utc(row.offered_at),
+          }
+        : null,
+      assignedDriver: row.assigned_driver_firebase_uid
+        ? {
+            firebaseUid: row.assigned_driver_firebase_uid,
+            name: row.assigned_driver_name,
+            acceptedAt: toRfc3339Utc(row.accepted_at),
           }
         : null,
     }));
