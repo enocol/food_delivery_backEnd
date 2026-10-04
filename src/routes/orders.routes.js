@@ -1509,16 +1509,16 @@ router.post("/:orderId/assign", requireAuth, async (req, res, next) => {
 
     const orderStatus = orderResult.rows[0].status;
 
-    if (["picked_up", "on_the_way"].includes(orderStatus)) {
-      // Once a driver has physically picked the order up, swapping the
-      // assigned driver here would just repoint a database column — it
-      // wouldn't move the food. Reassignment is only supported before
-      // pickup; handling an actual handoff between two drivers is a
-      // separate, unmodeled process.
+    if (["picked_up", "on_the_way", "delivered", "cancelled"].includes(orderStatus)) {
+      // Once a driver has physically picked the order up (or the order is
+      // already finished), swapping the assigned driver here would just
+      // repoint a database column — it wouldn't move the food. Reassignment
+      // is only supported before pickup; handling an actual handoff between
+      // two drivers is a separate, unmodeled process.
       await client.query("ROLLBACK");
       return res.status(409).json({
         message:
-          "This order has already been picked up; reassignment after pickup is not supported",
+          "This order has already been picked up or finished; it can no longer be assigned a driver",
       });
     }
 
@@ -1527,20 +1527,6 @@ router.post("/:orderId/assign", requireAuth, async (req, res, next) => {
       return res
         .status(409)
         .json({ message: "Order is not in a dispatchable state" });
-    }
-
-    const driverResult = await client.query(
-      `
-      SELECT firebase_uid
-      FROM drivers
-      WHERE firebase_uid = $1
-      `,
-      [driverFirebaseUid],
-    );
-
-    if (driverResult.rowCount === 0) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({ message: "Driver not found" });
     }
 
     const deliveryResult = await client.query(
@@ -1562,6 +1548,42 @@ router.post("/:orderId/assign", requireAuth, async (req, res, next) => {
 
     const delivery = deliveryResult.rows[0];
 
+    const driverResult = await client.query(
+      `
+      SELECT firebase_uid, is_online, status
+      FROM drivers
+      WHERE firebase_uid = $1
+      `,
+      [driverFirebaseUid],
+    );
+
+    if (driverResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Driver not found" });
+    }
+
+    // Check this before availability — a driver who already holds this
+    // delivery's offer/acceptance is, by definition, not 'Online' (they're
+    // 'Offered' or 'On Delivery'), which would otherwise incorrectly trip
+    // the availability check below instead of surfacing the real reason.
+    if (
+      (delivery.status === "offered" &&
+        delivery.offered_driver_firebase_uid === driverFirebaseUid) ||
+      (delivery.status === "accepted" &&
+        delivery.assigned_driver_firebase_uid === driverFirebaseUid)
+    ) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        message: "This driver is already assigned to this delivery",
+      });
+    }
+
+    const targetDriver = driverResult.rows[0];
+    if (!targetDriver.is_online || targetDriver.status !== "Online") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ message: "Driver is not available" });
+    }
+
     if (delivery.status === "offered" && delivery.offered_driver_firebase_uid) {
       await client.query(
         `
@@ -1574,17 +1596,14 @@ router.post("/:orderId/assign", requireAuth, async (req, res, next) => {
         [orderId, delivery.offered_driver_firebase_uid],
       );
 
-      if (delivery.offered_driver_firebase_uid !== driverFirebaseUid) {
-        await client.query(
-          `UPDATE drivers SET status = 'Online' WHERE firebase_uid = $1`,
-          [delivery.offered_driver_firebase_uid],
-        );
-        previousOfferCancelled = true;
-      }
+      await client.query(
+        `UPDATE drivers SET status = 'Online' WHERE firebase_uid = $1`,
+        [delivery.offered_driver_firebase_uid],
+      );
+      previousOfferCancelled = true;
     } else if (
       delivery.status === "accepted" &&
-      delivery.assigned_driver_firebase_uid &&
-      delivery.assigned_driver_firebase_uid !== driverFirebaseUid
+      delivery.assigned_driver_firebase_uid
     ) {
       await client.query(
         `UPDATE drivers SET status = 'Online' WHERE firebase_uid = $1`,
