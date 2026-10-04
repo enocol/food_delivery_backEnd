@@ -1109,6 +1109,77 @@ router.get(
   },
 );
 
+// GET /api/orders/needs-driver
+// Admin-only. Orders whose delivery hasn't been accepted by a driver yet —
+// either nobody has been offered it ("pending") or someone has but hasn't
+// responded ("offered"). This is the dispatcher's queue for POST
+// /:orderId/assign.
+router.get("/needs-driver", requireAuth, async (req, res, next) => {
+  if (!req.auth.user.is_admin) {
+    return res
+      .status(403)
+      .json({ message: "Forbidden: admin access required" });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        o.id AS order_id,
+        o.status AS order_status,
+        o.delivery_address,
+        o.delivery_fee,
+        o.contact_phone,
+        o.delivery_notes,
+        d.status AS delivery_status,
+        d.offered_driver_firebase_uid,
+        d.offered_at,
+        d.created_at AS ready_for_pickup_at,
+        r.id AS restaurant_id,
+        r.name AS restaurant_name,
+        r.location AS restaurant_location,
+        u.name AS offered_driver_name
+      FROM deliveries d
+      JOIN orders o ON o.id = d.order_id
+      JOIN restaurants r ON r.id = o.restaurant_id
+      LEFT JOIN users u ON u.firebase_uid = d.offered_driver_firebase_uid
+      WHERE d.status IN ('pending', 'offered')
+      ORDER BY d.created_at ASC
+      `,
+    );
+
+    const orders = result.rows.map((row) => ({
+      orderId: row.order_id,
+      orderStatus: row.order_status,
+      deliveryStatus: row.delivery_status,
+      readyForPickupAt: toRfc3339Utc(row.ready_for_pickup_at),
+      deliveryAddress:
+        parseCoordinateValue(row.delivery_address) ?? row.delivery_address,
+      deliveryFee: toCurrencyInt(row.delivery_fee) ?? 0,
+      contactPhone: row.contact_phone,
+      deliveryNotes: row.delivery_notes,
+      restaurant: {
+        id: row.restaurant_id,
+        name: row.restaurant_name,
+        location:
+          parseCoordinateValue(row.restaurant_location) ??
+          row.restaurant_location,
+      },
+      offeredDriver: row.offered_driver_firebase_uid
+        ? {
+            firebaseUid: row.offered_driver_firebase_uid,
+            name: row.offered_driver_name,
+            offeredAt: toRfc3339Utc(row.offered_at),
+          }
+        : null,
+    }));
+
+    return res.status(200).json({ count: orders.length, orders });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/:orderId", requireAuth, async (req, res) => {
   const order = await getOrderWithDetails(req.params.orderId);
 
@@ -1436,11 +1507,22 @@ router.post("/:orderId/assign", requireAuth, async (req, res, next) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    if (
-      !["ready_for_pickup", "picked_up", "on_the_way"].includes(
-        orderResult.rows[0].status,
-      )
-    ) {
+    const orderStatus = orderResult.rows[0].status;
+
+    if (["picked_up", "on_the_way"].includes(orderStatus)) {
+      // Once a driver has physically picked the order up, swapping the
+      // assigned driver here would just repoint a database column — it
+      // wouldn't move the food. Reassignment is only supported before
+      // pickup; handling an actual handoff between two drivers is a
+      // separate, unmodeled process.
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        message:
+          "This order has already been picked up; reassignment after pickup is not supported",
+      });
+    }
+
+    if (orderStatus !== "ready_for_pickup") {
       await client.query("ROLLBACK");
       return res
         .status(409)
