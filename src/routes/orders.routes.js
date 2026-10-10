@@ -111,6 +111,15 @@ async function sendPushNotification(firebaseUid, notification, data) {
           body: notification.body,
         },
         data,
+        android: {
+          priority: "high",
+        },
+        apns: {
+          headers: {
+            "apns-priority": "10",
+            "apns-push-type": "alert",
+          },
+        },
       });
 
       response.responses.forEach((result, index) => {

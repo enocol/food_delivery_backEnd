@@ -11,6 +11,8 @@ const {
 } = require("../utils/coordinates");
 const { withSchemaVersion } = require("../utils/eventPayload");
 const { toRfc3339Utc } = require("../utils/time");
+const { toCurrencyInt } = require("../utils/currency");
+const { OFFER_TIMEOUT_SECONDS } = require("../utils/constants");
 
 const router = express.Router();
 
@@ -68,6 +70,62 @@ router.get("/", requireAuth, async (req, res, next) => {
     }));
 
     return res.status(200).json({ count: drivers.length, drivers });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// GET /api/drivers/offers/current
+// Returns the authenticated driver's current pending delivery offer, if
+// any, in the same shape as the delivery_offered socket event. Lets the
+// app hydrate the offer modal on a cold start or on resume instead of
+// depending solely on having been connected when the offer went out.
+// A row whose offer window has already elapsed is treated as no offer,
+// even if the expiry sweep hasn't ticked yet — this is read-only and
+// doesn't itself mutate the stale row; the sweep still owns that.
+router.get("/offers/current", requireAuth, async (req, res, next) => {
+  const firebase_uid = req.auth.user.firebase_uid;
+
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        o.id AS order_id,
+        o.delivery_address,
+        o.delivery_fee,
+        o.contact_phone,
+        o.delivery_notes,
+        r.name AS restaurant_name,
+        r.location AS pickup_address
+      FROM deliveries d
+      JOIN orders o ON o.id = d.order_id
+      JOIN restaurants r ON r.id = o.restaurant_id
+      WHERE d.offered_driver_firebase_uid = $1
+        AND d.status = 'offered'
+        AND d.offered_at >= NOW() - make_interval(secs => $2)
+      LIMIT 1
+      `,
+      [firebase_uid, OFFER_TIMEOUT_SECONDS],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(200).json({ offer: null });
+    }
+
+    const d = result.rows[0];
+    return res.status(200).json({
+      offer: withSchemaVersion({
+        orderId: d.order_id,
+        restaurantName: d.restaurant_name,
+        pickupAddress:
+          parseCoordinateValue(d.pickup_address) ?? d.pickup_address,
+        deliveryAddress:
+          parseCoordinateValue(d.delivery_address) ?? d.delivery_address,
+        fee: toCurrencyInt(d.delivery_fee) ?? 0,
+        contactPhone: d.contact_phone,
+        deliveryNotes: d.delivery_notes,
+      }),
+    });
   } catch (error) {
     return next(error);
   }
