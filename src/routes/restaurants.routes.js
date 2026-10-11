@@ -3,6 +3,7 @@ const { randomUUID } = require("crypto");
 const pool = require("../config/db");
 const requireRestaurantAuth = require("../middleware/requireRestaurantAuth");
 const { toCurrencyInt } = require("../utils/currency");
+const { parseImageUrl } = require("../utils/imageUrl");
 
 const router = express.Router();
 
@@ -54,8 +55,18 @@ router.post("/", async (req, res) => {
     restaurantPayload.restaurant_name ||
     restaurantPayload.restaurantName ||
     restaurantPayload.name;
-  const imageUrl =
-    restaurantPayload.imageUrl || restaurantPayload.image_url || null;
+  const restaurantImageUrl = parseImageUrl(
+    restaurantPayload.imageUrl ?? restaurantPayload.image_url,
+  );
+  const imageUrl = restaurantImageUrl.value;
+  // Nested menu images are checked here, before the transaction opens, so a
+  // bad URL on the last item cannot leave a half-created restaurant behind.
+  const menuImageUrls = menuItemsPayload.map((menuItem, index) =>
+    parseImageUrl(
+      menuItem?.imageUrl ?? menuItem?.image_url,
+      `menuItems[${index}].imageUrl`,
+    ),
+  );
   const cuisine = restaurantPayload.cuisine;
   const rating = restaurantPayload.rating ?? 0;
   const deliveryTimeMinutes =
@@ -66,6 +77,15 @@ router.post("/", async (req, res) => {
   const latitude = restaurantPayload.latitude;
   const longitude = restaurantPayload.longitude;
   let location = restaurantPayload.location ?? null;
+
+  if (restaurantImageUrl.error) {
+    return res.status(400).json({ message: restaurantImageUrl.error });
+  }
+
+  const badMenuImage = menuImageUrls.find((result) => result.error);
+  if (badMenuImage) {
+    return res.status(400).json({ message: badMenuImage.error });
+  }
 
   if (latitude !== undefined || longitude !== undefined) {
     const parsedLatitude = Number(latitude);
@@ -212,7 +232,7 @@ router.post("/", async (req, res) => {
     ]);
 
     const createdMenuItems = [];
-    for (const menuItem of menuItemsPayload) {
+    for (const [menuIndex, menuItem] of menuItemsPayload.entries()) {
       const menuItemId = menuItem.id || `m_${randomUUID()}`;
       const menuInsertResult = await client.query(
         `
@@ -233,7 +253,7 @@ router.post("/", async (req, res) => {
           restaurantId,
           menuItem.name || menuItem.menuName,
           menuItem.description || null,
-          menuItem.imageUrl || menuItem.image_url || null,
+          menuImageUrls[menuIndex].value,
           toCurrencyInt(menuItem.price),
           menuItem.isAvailable ?? menuItem.is_available ?? true,
         ],
@@ -285,12 +305,11 @@ router.patch("/:restaurantId", async (req, res) => {
 
   const imageUrl = restaurantPayload.imageUrl ?? restaurantPayload.image_url;
   if (imageUrl !== undefined) {
-    if (imageUrl !== null && typeof imageUrl !== "string") {
-      return res
-        .status(400)
-        .json({ message: "imageUrl must be a string or null" });
+    const imageUrlResult = parseImageUrl(imageUrl);
+    if (imageUrlResult.error) {
+      return res.status(400).json({ message: imageUrlResult.error });
     }
-    values.push(imageUrl);
+    values.push(imageUrlResult.value);
     updates.push(`image_url = $${values.length}`);
   }
 

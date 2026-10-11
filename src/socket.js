@@ -205,6 +205,7 @@ function setupSocket(httpServer) {
         driver: profile,
         timestamp: new Date().toISOString(),
       };
+
       console.log("driver_status_changed payload -> admin room:", payload);
       io.to("admin").emit("driver_status_changed", withSchemaVersion(payload));
     } catch (error) {

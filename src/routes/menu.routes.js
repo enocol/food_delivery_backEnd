@@ -2,6 +2,7 @@ const express = require("express");
 const { randomUUID } = require("crypto");
 const pool = require("../config/db");
 const { toCurrencyInt } = require("../utils/currency");
+const { parseImageUrl } = require("../utils/imageUrl");
 
 const router = express.Router();
 
@@ -22,7 +23,9 @@ router.post("/", async (req, res) => {
   const restaurantId = payload.restaurant_id || payload.restaurantId;
   const name = payload.name || payload.menuName || payload.menu_name;
   const description = payload.description || null;
-  const imageUrl = payload.imageUrl || payload.image_url || null;
+  const imageUrlResult = parseImageUrl(
+    payload.imageUrl ?? payload.image_url,
+  );
   const price = toCurrencyInt(payload.price);
   const isAvailable = payload.is_available ?? payload.isAvailable ?? true;
 
@@ -41,6 +44,12 @@ router.post("/", async (req, res) => {
   if (price === null) {
     return res.status(400).json({
       message: "price must be an integer amount",
+    });
+  }
+
+  if (imageUrlResult.error) {
+    return res.status(400).json({
+      message: imageUrlResult.error,
     });
   }
 
@@ -69,7 +78,7 @@ router.post("/", async (req, res) => {
         restaurantId,
         name.trim(),
         description,
-        imageUrl,
+        imageUrlResult.value,
         price,
         isAvailable,
       ],
@@ -193,7 +202,15 @@ async function patchMenuItem(req, res) {
     Object.prototype.hasOwnProperty.call(payload, "image_url") ||
     Object.prototype.hasOwnProperty.call(payload, "imageUrl")
   ) {
-    params.push(payload.image_url ?? payload.imageUrl ?? null);
+    const imageUrlResult = parseImageUrl(
+      payload.image_url ?? payload.imageUrl,
+    );
+    if (imageUrlResult.error) {
+      return res.status(400).json({
+        message: imageUrlResult.error,
+      });
+    }
+    params.push(imageUrlResult.value);
     updates.push(`image_url = $${params.length}`);
   }
 
