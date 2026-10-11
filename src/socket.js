@@ -14,7 +14,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 // When a driver's socket drops we wait out this grace window before warning them
 // they've gone offline — long enough to absorb network blips, app backgrounding
 // and quick reconnects, so we only notify on a real, sustained outage.
-const OFFLINE_GRACE_MS = 45_000;
+const OFFLINE_GRACE_MS = 15_000;
 const offlineWarningTimers = new Map(); // firebaseUid -> timeout
 
 function scheduleOfflineWarning(io, firebaseUid) {
