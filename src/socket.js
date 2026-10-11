@@ -7,8 +7,53 @@ const {
   toCoordinateStorageValue,
 } = require("./utils/coordinates");
 const { withSchemaVersion } = require("./utils/eventPayload");
+const { sendPushNotification } = require("./utils/push");
 
 const JWT_SECRET = process.env.JWT_SECRET;
+
+// When a driver's socket drops we wait out this grace window before warning them
+// they've gone offline — long enough to absorb network blips, app backgrounding
+// and quick reconnects, so we only notify on a real, sustained outage.
+const OFFLINE_GRACE_MS = 45_000;
+const offlineWarningTimers = new Map(); // firebaseUid -> timeout
+
+function scheduleOfflineWarning(io, firebaseUid) {
+  if (offlineWarningTimers.has(firebaseUid)) return; // one pending timer per driver
+
+  const timer = setTimeout(async () => {
+    offlineWarningTimers.delete(firebaseUid);
+    try {
+      // Re-check at fire time: if any socket for this driver is connected now,
+      // they came back during the grace window — no warning needed.
+      const sockets = await io.in(`driver:${firebaseUid}`).fetchSockets();
+      if (sockets.length > 0) return;
+
+      await sendPushNotification(
+        firebaseUid,
+        {
+          title: "You've gone offline",
+          body: "You will not be able to receive delivery offers until you open the app again.",
+        },
+        { type: "driver_offline", at: new Date().toISOString() },
+      );
+    } catch (err) {
+      console.error(
+        `offline-warning failed for driver ${firebaseUid}:`,
+        err.message,
+      );
+    }
+  }, OFFLINE_GRACE_MS);
+
+  offlineWarningTimers.set(firebaseUid, timer);
+}
+
+function cancelOfflineWarning(firebaseUid) {
+  const timer = offlineWarningTimers.get(firebaseUid);
+  if (timer) {
+    clearTimeout(timer);
+    offlineWarningTimers.delete(firebaseUid);
+  }
+}
 
 function toRadians(deg) {
   return (deg * Math.PI) / 180;
@@ -264,6 +309,8 @@ function setupSocket(httpServer) {
     } else if (socket.role === "driver") {
       // Join personal room so the backend can reach this specific driver
       socket.join(`driver:${socket.firebaseUid}`);
+      // Reconnected — cancel any pending "you've gone offline" warning.
+      cancelOfflineWarning(socket.firebaseUid);
       console.log(
         `Driver ${socket.firebaseUid} connected (socket ${socket.id})`,
       );
@@ -367,11 +414,24 @@ function setupSocket(httpServer) {
           `Driver ${socket.firebaseUid} disconnected (socket ${socket.id})`,
         );
         try {
-          await pool.query(
-            `UPDATE drivers SET is_online = FALSE, status = 'Offline', socket_id = NULL, updated_at = NOW()
-             WHERE firebase_uid = $1`,
+          const result = await pool.query(
+            `WITH prev AS (
+               SELECT is_online AS was_online FROM drivers WHERE firebase_uid = $1
+             )
+             UPDATE drivers d
+                SET is_online = FALSE, status = 'Offline', socket_id = NULL, updated_at = NOW()
+               FROM prev
+              WHERE d.firebase_uid = $1
+             RETURNING prev.was_online`,
             [socket.firebaseUid],
           );
+
+          // Only warn drivers who were actually online when the socket dropped;
+          // an intentional go_offline already set is_online = FALSE, so that
+          // case is skipped. The warning itself is debounced (grace window).
+          if (result.rows[0]?.was_online) {
+            scheduleOfflineWarning(io, socket.firebaseUid);
+          }
         } catch (err) {
           console.error(
             `disconnect DB error for driver ${socket.firebaseUid}:`,
