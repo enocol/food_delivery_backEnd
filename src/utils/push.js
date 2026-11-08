@@ -22,7 +22,14 @@ function chunkArray(values, chunkSize) {
 // Handles raw FCM tokens (via Firebase Admin, high priority) and Expo push
 // tokens (via the Expo push API), and deactivates tokens the providers report as
 // invalid. Shared by the order/customer flows and the driver socket layer.
-async function sendPushNotification(firebaseUid, notification, data) {
+//
+// `options` (all optional) tune a single send without changing the defaults:
+//   sound     - iOS sound filename (e.g. "offer_alert.wav"); defaults to "default".
+//   channelId - Android channel id to route through; its channel supplies the
+//               sound/importance. Omit to use the default channel.
+//   priority  - Expo message priority: "high" | "normal" | "default".
+async function sendPushNotification(firebaseUid, notification, data, options = {}) {
+  const sound = options.sound || "default";
   const tokensResult = await pool.query(
     `
     SELECT fcm_token
@@ -69,12 +76,25 @@ async function sendPushNotification(firebaseUid, notification, data) {
         data,
         android: {
           priority: "high",
+          ...(options.channelId || options.sound
+            ? {
+                notification: {
+                  ...(options.channelId
+                    ? { channelId: options.channelId }
+                    : {}),
+                  ...(options.sound ? { sound: options.sound } : {}),
+                },
+              }
+            : {}),
         },
         apns: {
           headers: {
             "apns-priority": "10",
             "apns-push-type": "alert",
           },
+          ...(options.sound
+            ? { payload: { aps: { sound: options.sound } } }
+            : {}),
         },
       });
 
@@ -104,8 +124,10 @@ async function sendPushNotification(firebaseUid, notification, data) {
               to: token,
               title: notification.title,
               body: notification.body,
-              sound: "default",
+              sound,
               data,
+              ...(options.channelId ? { channelId: options.channelId } : {}),
+              ...(options.priority ? { priority: options.priority } : {}),
             })),
           ),
         });

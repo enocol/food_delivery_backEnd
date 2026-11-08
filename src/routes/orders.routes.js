@@ -74,11 +74,23 @@ async function sendDeliveryOfferPush(orderId, driverFirebaseUid, restaurantName)
     body: `You've been offered a delivery from ${restaurantName || "a restaurant"}.`,
   };
 
-  await sendPushNotification(driverFirebaseUid, notification, {
-    type: "delivery_offered",
-    orderId: String(orderId),
-    updatedAt: new Date().toISOString(),
-  });
+  await sendPushNotification(
+    driverFirebaseUid,
+    notification,
+    {
+      type: "delivery_offered",
+      orderId: String(orderId),
+      updatedAt: new Date().toISOString(),
+    },
+    // Ring loudly for an incoming offer: route Android through the dedicated
+    // loud channel and play the custom alert sound on iOS. (Must stay in sync
+    // with OFFER_CHANNEL_ID / the bundled sound in the driver app.)
+    {
+      sound: "offer_alert.wav",
+      channelId: "delivery-offers",
+      priority: "high",
+    },
+  );
 }
 
 function normalizeDeliveryAddress(deliveryAddress) {
