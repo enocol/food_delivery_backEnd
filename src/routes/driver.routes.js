@@ -683,7 +683,7 @@ router.patch(
 
       const authorizationResult = await client.query(
         `
-      SELECT o.id, o.status, o.firebase_uid, d.assigned_driver_firebase_uid
+      SELECT o.id, o.status, o.firebase_uid, o.delivery_code, d.assigned_driver_firebase_uid
       FROM orders o
       JOIN deliveries d ON d.order_id = o.id
       WHERE o.id = $1
@@ -749,6 +749,27 @@ router.patch(
         return res.status(409).json({
           message: `Invalid status transition from ${orderRow.status} to ${status}`,
         });
+      }
+
+      // Proof-of-delivery: confirming "delivered" requires the customer's
+      // 5-digit delivery code. Verified here against the code generated at
+      // order creation — the driver app never holds it, it's entered by the
+      // driver from what the customer tells them.
+      if (status === "delivered") {
+        const providedCode = String(req.body?.deliveryCode ?? "").trim();
+        const expectedCode = String(orderRow.delivery_code ?? "").trim();
+        if (!expectedCode) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({
+            message: "This order has no delivery code on file.",
+          });
+        }
+        if (providedCode !== expectedCode) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            message: "Incorrect delivery code. Ask the customer to confirm it.",
+          });
+        }
       }
 
       await client.query(
